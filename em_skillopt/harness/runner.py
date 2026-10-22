@@ -1,23 +1,186 @@
-"""agent loop in an episode"""
-from core.types import EpisodeResult
+"""Generic episode loop for EM-Benchmark.
 
-def run_episode(spec, env, context, parser, llm, skill, max_planner_steps):
-    obs = env.reset(spec)
-    history = []
-    for _ in range(max_planner_steps):
-        messages = context.build(spec, obs, history, skill)
-        response = llm.generate(messages)
-        plan = parser.parse(response.text, env.action_space)
-        if plan.stop or not plan.actions:
-            break
-        for action in plan.actions:
-            step = env.step(action)
-            history.append(...)
-            if step.done:
-                break
-            if not step.action_valid and env.replan_on_invalid:
-                break
-        if step.done:
-            break
+The runner is domain-agnostic.  Domain-specific behavior lives in:
 
-    return EpisodeResult(...)
+- ``EnvironmentAdapter``: reset/step/action space/replan policy
+- ``ContextBuilder``: prompt construction
+- ``PlanParser``: raw text -> ActionPlan
+- ``LLMClient``: target model call
+"""
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass
+
+from ..core.protocols import (
+    ContextBuilder,
+    EnvironmentAdapter,
+    LLMClient,
+    PlanParser,
+)
+from ..core.types import (
+    EpisodeResult,
+    EpisodeSpec,
+    PlanRecord,
+    TokenUsage,
+    TrajectoryStep,
+)
+
+
+@dataclass
+class RunnerConfig:
+    max_planner_steps: int = 20
+    max_steps: int | None = None
+    max_tokens: int = 8192
+    temperature: float | None = None
+    stop_on_empty_plan: bool = True
+
+
+class EpisodeRunner:
+    """Run one episode end-to-end."""
+
+    def __init__(
+        self,
+        env: EnvironmentAdapter,
+        context: ContextBuilder,
+        parser: PlanParser,
+        llm: LLMClient,
+        config: RunnerConfig | None = None,
+    ) -> None:
+        self.env = env
+        self.context = context
+        self.parser = parser
+        self.llm = llm
+        self.config = config or RunnerConfig()
+
+    def run_episode(
+        self,
+        spec: EpisodeSpec,
+        skill: str | None = None,
+    ) -> EpisodeResult:
+        started_at = time.perf_counter()
+
+        max_steps = (
+            self.config.max_steps
+            or min(spec.max_steps, self.env.max_steps)
+        )
+
+        observation = self.env.reset(spec)
+        history: list[TrajectoryStep] = []
+        plans: list[PlanRecord] = []
+        token_usage = TokenUsage()
+
+        success = False
+        done = False
+        invalid_actions = 0
+        format_errors = 0
+
+        for planner_step in range(self.config.max_planner_steps):
+            messages = self.context.build(
+                spec,
+                observation,
+                history,
+                skill,
+                planner_step=planner_step,
+            )
+
+            response = self.llm.generate(
+                messages,
+                max_tokens=self.config.max_tokens,
+                temperature=self.config.temperature,
+                stage="target",
+            )
+            token_usage = token_usage + response.usage
+
+            plan = self.parser.parse(response.text, self.env.action_space)
+            plans.append(
+                PlanRecord(
+                    planner_step=planner_step,
+                    raw_response=response.text,
+                    actions=plan.actions,
+                    error=plan.error,
+                )
+            )
+
+            if plan.error:
+                format_errors += 1
+
+            # 空计划、模型主动停止、解析失败且没有有效前缀，都结束当前 episode。
+            if plan.stop or not plan.actions:
+                break
+
+            for action in plan.actions:
+                if len(history) >= max_steps:
+                    break
+
+                step = self.env.step(action)
+                observation = step.observation
+                history.append(
+                    TrajectoryStep(
+                        planner_step=planner_step,
+                        env_step=len(history) + 1,
+                        action=action,
+                        action_valid=step.action_valid,
+                        reward=step.reward,
+                        feedback=step.feedback,
+                        done=step.done,
+                        success=step.success,
+                    )
+                )
+
+                if not step.action_valid:
+                    invalid_actions += 1 # 我记得invalid action过多，即使没有hit max_steps，也会终止episode，标记failure
+
+                success = bool(step.success)
+                if step.done: # complete the episode
+                    done = True
+                    break
+
+                if not step.action_valid and self.env.replan_on_invalid:
+                    break
+
+            if done:
+                break
+            if len(history) >= max_steps:
+                break
+
+        elapsed_s = time.perf_counter() - started_at
+        reward = (
+            sum(step.reward for step in history) / len(history) # average reward in episode, useful for 'soft score'
+            if history
+            else 0.0
+        )
+
+        failure_reason = ""
+        if not success:
+            if any(plan.error for plan in plans):
+                failure_reason = "format_error"
+            elif any(not plan.actions and plan.error is None for plan in plans):
+                failure_reason = "empty_plan"
+            elif len(history) >= max_steps:
+                failure_reason = "max_steps"
+            elif invalid_actions:
+                failure_reason = "invalid_action"
+            else:
+                failure_reason = "not_success"
+
+        return EpisodeResult(
+            spec=spec,
+            success=success,
+            reward=reward,
+            num_env_steps=len(history),
+            num_planner_steps=len(plans),
+            invalid_actions=invalid_actions,
+            format_errors=format_errors,
+            elapsed_s=elapsed_s,
+            failure_reason=failure_reason,
+            plans=plans,
+            trajectory=history,
+            token_usage=token_usage,
+        )
+
+
+__all__ = [
+    "EpisodeRunner",
+    "RunnerConfig",
+]

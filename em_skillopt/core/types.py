@@ -1,78 +1,22 @@
-"""Core data types shared by the EM target harness and the SkillOpt bridge.
+"""Core data types shared by the target harness and the SkillOpt bridge.
 
-This module intentionally depends only on the Python standard library.  It is
-the contract between:
-
-- the EM episode runner (target side)
-- the four domain adapters
-- the SkillOpt adapter / reflection / metrics code
-
-Keeping it dependency-free makes it importable from a lightweight optimizer
-environment and from every EmbodiedBench conda environment.
+Keep this module small.  If a field is not read by the runner, an adapter, the
+metrics aggregator, or the SkillOpt adapter, it does not belong here.
 """
 from __future__ import annotations
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Iterable, Mapping, Sequence, TypeAlias
 
-# A single low-level action.  High-level environments use ints (action ids) or
-# strings; EB-Manipulation uses a 7-dimensional list of ints.
+from dataclasses import asdict, dataclass, field
+from typing import Any, Sequence, TypeAlias
+
+# int / str for high-level environments; list[int] for EB-Manipulation.
 ActionValue: TypeAlias = int | str | list[int]
 
-# OpenAI-style chat message.  We keep this as a plain dict so the same object
-# can be passed to the EM RemoteModel and to the SkillOpt Qwen backend.
+# OpenAI-style chat message.
 Message: TypeAlias = dict[str, Any]
 
-# multi inheritance
-class Split(str, Enum):
-    """Dataset split names used by the runner and dataloaders"""
-    # enum values are defined as:
-    TRAIN = "train"
-    VAL = "val"
-    TEST = "test"
-
-    @classmethod
-    def coerce(cls, value: "Split | str") -> "Split":
-        """force inversion
-        args:
-            @cls: class type
-            @value: a Split object or str
-        """
-        normalized = str(value).strip().lower()
-        # typical alias mapping to standard names
-        alias = {
-            "training": "train",
-            "selection": "val",
-            "valid": "val",
-            "valid_seen": "val",
-            "dev": "val",
-            "valid_unseen": "test",
-            "evaluation": "test",
-        }
-        return cls(alias.get(normalized, normalized))
-
-def json_safe(value: Any) -> Any:
-    """
-    Recursively convert any Python object into basic types that can be serialized by json.dumps, while guaranteeing no exceptions are raised.
-    """
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    # recursively process 'Mapping' type
-    # key in json must be 'str' while python's dict's key can be int,tuple etc
-    if isinstance(value, Mapping):
-        return {str(k): json_safe(v) for k, v in value.items()}
-    # json do not have tuple/set
-    if isinstance(value, (list, tuple, set)):
-        return [json_safe(item) for item in value]
-    tolist = getattr(value, "to_list", None)
-    if callable(tolist):
-        return json_safe(tolist(value))
-    return str(value)
 
 @dataclass
 class TokenUsage:
-    """Token accounting for one or more LLM calls."""
-
     calls: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -88,49 +32,20 @@ class TokenUsage:
             completion_tokens=self.completion_tokens + other.completion_tokens,
         )
 
-    def to_dict(self) -> dict[str, int]:
-        return {
-            "calls": self.calls,
-            "prompt_tokens": self.prompt_tokens,
-            "completion_tokens": self.completion_tokens,
-            "total_tokens": self.total_tokens,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Mapping[str, Any] | None) -> "TokenUsage":
-        data = data or {}
-        return cls(
-            calls=int(data.get("calls", 0) or 0), # key may exist, but value = None / "" / False
-            prompt_tokens=int(data.get("prompt_tokens", 0) or 0),
-            completion_tokens=int(data.get("completion_tokens", 0) or 0),
-        )
 
 @dataclass
 class LLMResponse:
-    """Normalize LLM response returned by every LLM client"""
     text: str
     model: str = ""
-    # `default_factory` accepts a no-argument callable, which is called once each time an instance is created, returning a new object.
     usage: TokenUsage = field(default_factory=TokenUsage)
-    latency_s: float = 0.0
-    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "text": self.text,
-            "model": self.model,
-            "usage": self.usage.to_dict(),
-            "latency_s": self.latency_s,
-            "raw": json_safe(dict(self.raw)),
-        }
 
 @dataclass
 class EpisodeSpec:
-    """One episode to execute.
+    """One episode.
 
-    ``index`` is the position in the original EmbodiedBench dataset, not the
-    position in the current split.  The domain adapter needs it to move the
-    simulator to the right episode.
+    ``index`` is the position in the original EmbodiedBench dataset.  The
+    domain adapter uses it to move the simulator to the correct episode.
     """
 
     episode_id: str
@@ -138,34 +53,215 @@ class EpisodeSpec:
     index: int
     instruction: str
     capability: str = "base"
-    split: Split = Split.TRAIN
+    split: str = "train"
     max_steps: int = 30
     seed: int = 42
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
+
+@dataclass
+class Observation:
+    """What the target model sees at one planning step."""
+
+    images: list[str] = field(default_factory=list)
+    text: str = ""
+
+
+@dataclass
+class ActionPlan:
+    """Parsed model output for one planning step."""
+
+    actions: list[ActionValue] = field(default_factory=list)
+    raw: str = ""
+    stop: bool = False
+    error: str | None = None
+
+    @property
+    def valid(self) -> bool:
+        return self.error is None
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.actions
+
+
+@dataclass
+class StepResult:
+    """Normalized result of one environment action."""
+
+    observation: Observation
+    reward: float = 0.0
+    done: bool = False
+    success: bool = False
+    feedback: str = ""
+    action_valid: bool = True
+    info: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class PlanRecord:
+    """One LLM call and its parsed plan, kept for reflection."""
+
+    planner_step: int
+    raw_response: str
+    actions: list[ActionValue] = field(default_factory=list)
+    error: str | None = None
+
+
+@dataclass
+class TrajectoryStep:
+    """One executed action, kept for reflection and debugging."""
+
+    planner_step: int
+    env_step: int
+    action: ActionValue
+    action_valid: bool
+    reward: float
+    feedback: str
+    done: bool
+    success: bool
+
+
+@dataclass
+class EpisodeResult:
+    """Result of one episode."""
+
+    spec: EpisodeSpec
+    success: bool = False
+    reward: float = 0.0
+    num_env_steps: int = 0
+    num_planner_steps: int = 0
+    invalid_actions: int = 0
+    format_errors: int = 0
+    elapsed_s: float = 0.0
+    failure_reason: str = ""
+    plans: list[PlanRecord] = field(default_factory=list)
+    trajectory: list[TrajectoryStep] = field(default_factory=list)
+    token_usage: TokenUsage = field(default_factory=TokenUsage)
+
+    @property
+    def hard(self) -> float:
+        return 1.0 if self.success else 0.0
+
+    @property
+    def soft_score(self) -> float:
+        # ALF/Habitat/Nav rewards are 0/1; keep this clipped for dense rewards.
+        return max(0.0, min(1.0, float(self.reward)))
+
+    @property
+    def empty_plans(self) -> int:
+        return sum(1 for plan in self.plans if not plan.actions)
+
+    def to_rollout_result(self) -> dict[str, Any]:
+        """Dict shape expected by SkillOpt's EnvAdapter.rollout()."""
+
         return {
-            "episode_id": self.episode_id,
-            "env_name": self.env_name,
-            "index": self.index,
-            "instruction": self.instruction,
-            "capability": self.capability,
-            "split": self.split.value,
-            "max_steps": self.max_steps,
-            "seed": self.seed,
-            "metadata": json_safe(dict(self.metadata)),
+            "id": self.spec.episode_id,
+            "hard": self.hard,
+            "soft": self.soft_score,
+            "n_turns": self.num_env_steps,
+            "fail_reason": self.failure_reason,
+            "task_type": self.spec.capability,
+            "env": self.spec.env_name,
+            "instruction": self.spec.instruction,
+            "num_planner_steps": self.num_planner_steps,
+            "invalid_actions": self.invalid_actions,
+            "format_errors": self.format_errors,
+            "elapsed_s": self.elapsed_s,
+            "token_usage": asdict(self.token_usage),
         }
 
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class EvalSummary:
+    """Aggregated metrics for one environment/split/method."""
+
+    env_name: str
+    split: str
+    total: int = 0
+    successes: int = 0
+    success_rate: float = 0.0
+    mean_reward: float = 0.0
+    mean_env_steps: float = 0.0
+    mean_planner_steps: float = 0.0
+    invalid_action_rate: float = 0.0
+    format_error_rate: float = 0.0
+    elapsed_s: float = 0.0
+    total_tokens: int = 0
+    per_capability: dict[str, dict[str, Any]] = field(default_factory=dict)
+
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "EpisodeSpec":
+    def from_results(
+        cls,
+        results: Sequence[EpisodeResult],
+        *,
+        env_name: str,
+        split: str,
+    ) -> "EvalSummary":
+        total = len(results)
+        successes = sum(result.success for result in results)
+        total_env_steps = sum(result.num_env_steps for result in results)
+        total_planner_steps = sum(result.num_planner_steps for result in results)
+        invalid_actions = sum(result.invalid_actions for result in results)
+        format_errors = sum(result.format_errors for result in results)
+        elapsed_s = sum(result.elapsed_s for result in results)
+        total_tokens = sum(result.token_usage.total_tokens for result in results)
+
+        per_capability: dict[str, dict[str, Any]] = {}
+        for result in results:
+            capability = result.spec.capability
+            bucket = per_capability.setdefault(
+                capability,
+                {
+                    "total": 0,
+                    "successes": 0,
+                    "success_rate": 0.0,
+                    "mean_reward": 0.0,
+                },
+            )
+            bucket["total"] += 1
+            bucket["successes"] += int(result.success)
+            bucket["mean_reward"] += result.reward
+
+        for bucket in per_capability.values():
+            count = max(bucket["total"], 1)
+            bucket["success_rate"] = bucket["successes"] / count
+            bucket["mean_reward"] = bucket["mean_reward"] / count
+
         return cls(
-            episode_id=str(data["episode_id"]),
-            env_name=str(data["env_name"]),
-            index=int(data["index"]),
-            instruction=str(data.get("instruction", "")),
-            capability=str(data.get("capability", "base")),
-            split=Split.coerce(data.get("split", "train")),
-            max_steps=int(data.get("max_steps", 30)),
-            seed=int(data.get("seed", 42)),
-            metadata=dict(data.get("metadata") or {}),
+            env_name=env_name,
+            split=split,
+            total=total,
+            successes=successes,
+            success_rate=successes / max(total, 1),
+            mean_reward=sum(result.reward for result in results) / max(total, 1),
+            mean_env_steps=total_env_steps / max(total, 1),
+            mean_planner_steps=total_planner_steps / max(total, 1),
+            invalid_action_rate=invalid_actions / max(total_env_steps, 1),
+            format_error_rate=format_errors / max(total, 1),
+            elapsed_s=elapsed_s,
+            total_tokens=total_tokens,
+            per_capability=per_capability,
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+__all__ = [
+    "ActionPlan",
+    "ActionValue",
+    "EpisodeResult",
+    "EpisodeSpec",
+    "EvalSummary",
+    "LLMResponse",
+    "Message",
+    "Observation",
+    "PlanRecord",
+    "StepResult",
+    "TokenUsage",
+    "TrajectoryStep",
+]
