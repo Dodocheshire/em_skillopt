@@ -1,0 +1,1 @@
+"""SkillDocument / load / save / inject / protected block"""

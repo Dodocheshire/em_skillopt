@@ -1,0 +1,1 @@
+"""harness -> SkillOpt result dict"""
