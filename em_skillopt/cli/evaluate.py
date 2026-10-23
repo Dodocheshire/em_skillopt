@@ -30,7 +30,7 @@ from ..harness.adapters.nav import NavAdapter
 from ..harness.batch import BatchConfig, BatchRunner
 from ..harness.capability import CapabilityBatchRunner
 from ..harness.parsing import ActionIdPlanParser, ManipulationPlanParser
-from ..harness.prompts import build_context
+from ..harness.prompts import build_context, response_format_for
 from ..harness.runner import EpisodeRunner, RunnerConfig
 
 EM_ROOT = Path("/home/pengcheng/EM-Benchmark/EmbodiedBench")
@@ -160,7 +160,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--proxy", default="http://127.0.0.1:7890")
     parser.add_argument("--max-steps", type=int, default=0)
     parser.add_argument("--max-planner-steps", type=int, default=20)
-    parser.add_argument("--max-tokens", type=int, default=2048)
+    parser.add_argument("--max-tokens", type=int, default=8192)
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--n-shots", type=int, default=-1)
     parser.add_argument("--no-detection", action="store_true")
@@ -189,6 +189,10 @@ def make_runner_config(args: argparse.Namespace) -> RunnerConfig:
         max_steps=(args.max_steps or None),
         max_tokens=args.max_tokens,
         temperature=args.temperature,
+        response_format=response_format_for(
+            args.env,
+            language_only=args.language_only,
+        ),
     )
 
 

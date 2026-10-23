@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from typing import Any
 
 from ..core.protocols import (
     ContextBuilder,
@@ -19,12 +20,14 @@ from ..core.protocols import (
     PlanParser,
 )
 from ..core.types import (
+    ActionPlan,
     EpisodeResult,
     EpisodeSpec,
     PlanRecord,
     TokenUsage,
     TrajectoryStep,
 )
+from .schema import validate_json_schema
 
 
 @dataclass
@@ -33,6 +36,7 @@ class RunnerConfig:
     max_steps: int | None = None
     max_tokens: int = 8192
     temperature: float | None = None
+    response_format: dict[str, Any] | None = None
 
 class EpisodeRunner:
     """Run one episode end-to-end."""
@@ -50,6 +54,10 @@ class EpisodeRunner:
         self.parser = parser
         self.llm = llm
         self.config = config or RunnerConfig()
+        if not self.config.response_format:
+            raise ValueError(
+                "EpisodeRunner requires a JSON-schema response_format"
+            )
 
     def run_episode(
         self,
@@ -86,11 +94,27 @@ class EpisodeRunner:
                 messages,
                 max_tokens=self.config.max_tokens,
                 temperature=self.config.temperature,
+                response_format=self.config.response_format,
                 stage="target",
             )
             token_usage = token_usage + response.usage
 
-            plan = self.parser.parse(response.text, self.env.action_space)
+            try:
+                document = validate_json_schema(
+                    response.text,
+                    self.config.response_format,
+                )
+            except Exception as exc:
+                plan = ActionPlan(
+                    raw=response.text,
+                    error=f"schema validation error: {exc}",
+                )
+            else:
+                plan = self.parser.parse_document(
+                    document,
+                    self.env.action_space,
+                )
+                plan.raw = response.text
             plans.append(
                 PlanRecord(
                     planner_step=planner_step,

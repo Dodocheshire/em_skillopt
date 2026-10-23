@@ -160,6 +160,8 @@ class ContextBuilder:
     base_system_prompt: str
     user_builder: UserPromptBuilder
     image_key: str = "image_path"
+    image_first: bool = False
+    system_as_user: bool = False
 
     def build(
         self,
@@ -178,15 +180,26 @@ class ContextBuilder:
             planner_step,
         )
 
-        content: list[dict] = [
-            {"type": "text", "text": user_text},
+        image_parts = [
+            {"type": self.image_key, "path": image_path}
+            for image_path in observation.images
         ]
-        for image_path in observation.images:
-            content.append({
-                "type": self.image_key,
-                "path": image_path,
-            })
+        text_part = {"type": "text", "text": user_text}
+        if self.system_as_user:
+            user_text = f"{system}\n\n{user_text}"
+            text_part = {"type": "text", "text": user_text}
+            content = (
+                image_parts + [text_part]
+                if self.image_first
+                else [text_part] + image_parts
+            )
+            return [{"role": "user", "content": content}]
 
+        content = (
+            image_parts + [text_part]
+            if self.image_first
+            else [text_part] + image_parts
+        )
         return [
             {"role": "system", "content": system},
             {"role": "user", "content": content},

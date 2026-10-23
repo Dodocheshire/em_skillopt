@@ -3,3 +3,11 @@ __pycache__/
 .vscode/
 yolo11n.pt
 data
+!em_skillopt/data/loaders.py
+!em_skillopt/data/manifests.py
+!em_skillopt/data/splits.py
+
+**/*test*
+splits/
+runs/
+**/*smoke*

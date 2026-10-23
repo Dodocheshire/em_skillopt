@@ -90,7 +90,11 @@ class ContextBuilder(Protocol):
 class PlanParser(Protocol):
     """Parse one raw model response into an executable action plan."""
 
-    def parse(self, raw: str, action_space: Sequence[ActionValue]) -> ActionPlan:
+    def parse_document(
+        self,
+        document: dict[str, Any],
+        action_space: Sequence[ActionValue],
+    ) -> ActionPlan:
         ...
 
 __all__ = [
