@@ -20,8 +20,8 @@ from typing import Any, Sequence
 from ..core.types import ActionPlan, ActionValue
 
 
-def load_json_object(raw: str) -> dict[str, Any]:
-    """Extract the first JSON object from a model response."""
+def load_json_value(raw: str) -> Any:
+    """Extract the first JSON object or array from a model response."""
 
     text = raw.strip()
 
@@ -29,15 +29,36 @@ def load_json_object(raw: str) -> dict[str, Any]:
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
 
-    start = text.find("{")
-    end = text.rfind("}")
-    if start < 0 or end < start:
-        raise ValueError("response contains no JSON object")
+    starts = [pos for pos in (text.find("{"), text.find("[")) if pos >= 0]
+    if not starts:
+        raise ValueError("response contains no JSON value")
 
-    value = json.loads(text[start:end + 1])
+    value, _ = json.JSONDecoder().raw_decode(text[min(starts):])
+    return value
+
+
+def load_json_object(raw: str) -> dict[str, Any]:
+    """Extract the first JSON object from a model response."""
+
+    value = load_json_value(raw)
     if not isinstance(value, dict):
         raise ValueError("response JSON is not an object")
     return value
+
+
+def extract_plan(value: Any) -> list:
+    """Accept a full document or a bare executable-plan array."""
+
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        if "executable_plan" in value:
+            return coerce_plan_list(value["executable_plan"])
+        if "plan" in value:
+            return coerce_plan_list(value["plan"])
+        if "action_id" in value or "action" in value:
+            return [value]
+    raise ValueError("response does not contain an executable plan")
 
 
 def coerce_plan_list(value: Any) -> list:
@@ -58,6 +79,8 @@ def coerce_plan_list(value: Any) -> list:
 def _item_action_id(item: Any) -> Any:
     if isinstance(item, dict):
         return item.get("action_id", item.get("action"))
+    if isinstance(item, (list, tuple)) and item:
+        return item[0]
     return item
 
 
@@ -70,8 +93,8 @@ class ActionIdPlanParser:
         action_space: Sequence[ActionValue],
     ) -> ActionPlan:
         try:
-            document = load_json_object(raw)
-            plan = coerce_plan_list(document.get("executable_plan"))
+            document = load_json_value(raw)
+            plan = extract_plan(document)
         except Exception as exc:
             return ActionPlan(raw=raw, error=f"parse error: {exc}")
 
@@ -111,8 +134,8 @@ class ManipulationPlanParser:
         del action_space  # manipulation actions are not ids
 
         try:
-            document = load_json_object(raw)
-            plan = coerce_plan_list(document.get("executable_plan"))
+            document = load_json_value(raw)
+            plan = extract_plan(document)
         except Exception as exc:
             return ActionPlan(raw=raw, error=f"parse error: {exc}")
 

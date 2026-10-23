@@ -102,8 +102,13 @@ class ManAdapter(BaseAdapter):
 
         images = _as_paths(self.env.save_image(self.camera_views))
 
-        # ``vars(obs)`` is what the original EM evaluator passes to the helper.
-        raw_obs = vars(copy.deepcopy(obs))
+        # EBManEnv.step() returns a dict on an execution error and an
+        # Observation object on success.  Normalise both before the helper.
+        raw_obs = (
+            copy.deepcopy(obs)
+            if isinstance(obs, dict)
+            else vars(copy.deepcopy(obs))
+        )
         avg_coord, all_points, extrinsics, intrinsics = (
             form_object_coord_for_input(
                 raw_obs,

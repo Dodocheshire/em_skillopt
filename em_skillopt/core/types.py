@@ -6,13 +6,14 @@ metrics aggregator, or the SkillOpt adapter, it does not belong here.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Sequence, TypeAlias
+from typing import Any, Dict, List, Sequence, Union
 
 # int / str for high-level environments; list[int] for EB-Manipulation.
-ActionValue: TypeAlias = int | str | list[int]
+# Keep this Python 3.9-compatible because the EmbodiedBench conda envs use 3.9.
+ActionValue = Union[int, str, List[int]]
 
 # OpenAI-style chat message.
-Message: TypeAlias = dict[str, Any]
+Message = Dict[str, Any]
 
 
 @dataclass

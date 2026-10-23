@@ -1,5 +1,5 @@
 artifacts/
-
 __pycache__/
-
-tests/
+.vscode/
+yolo11n.pt
+data
