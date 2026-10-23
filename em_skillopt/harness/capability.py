@@ -1,4 +1,3 @@
-#! WARNING Not Read
 """Run mixed-capability splits with one runner per capability.
 
 A development split for EM can contain specs from several eval sets:
