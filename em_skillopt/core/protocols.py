@@ -36,6 +36,7 @@ class LLMClient(Protocol):
         max_tokens: int,
         temperature: float | None = None,
         response_format: dict[str, Any] | None = None,
+        stage: str = "target",
     ) -> LLMResponse:
         ...
 
@@ -63,11 +64,8 @@ class EnvironmentAdapter(Protocol):
     def reset(self, spec: EpisodeSpec) -> Observation:
         ...
 
-    def step(self, Action: ActionValue) -> StepResult:
+    def step(self, action: ActionValue) -> StepResult:
         ...
-
-    def save_image(self, observation: Observation, out_dir: str) -> list[str]:
-        """Persist the current observation image(s), returning local paths."""
 
     def close(self) -> None:
         ...

@@ -33,8 +33,6 @@ class RunnerConfig:
     max_steps: int | None = None
     max_tokens: int = 8192
     temperature: float | None = None
-    stop_on_empty_plan: bool = True
-
 
 class EpisodeRunner:
     """Run one episode end-to-end."""

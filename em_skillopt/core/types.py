@@ -65,7 +65,7 @@ class Observation:
 
     images: list[str] = field(default_factory=list)
     text: str = ""
-
+    metadata: dict[str, Any] = field(default_factory=dict) # object_coords in manipulation
 
 @dataclass
 class ActionPlan:

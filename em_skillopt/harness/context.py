@@ -7,8 +7,8 @@
 [current observation]
 [history + env feedback]
 [output JSON schema]
-"""
-"""Prompt composition for the target model.
+
+Prompt composition for the target model.
 
 This module owns two things:
 
@@ -127,19 +127,19 @@ class SimpleUserPromptBuilder:
 
         return "\n\n".join(parts)
 
-"""[
-    {"role": "system", "content": system_prompt},
-    {
-        "role": "user",
-        "content": [
-            {"type": "text", "text": user_text},
-            {"type": "image_path", "path": "/path/frame.png"},
-        ],
-    },
-]
-图片先用 image_path 占位，等 backends/qwen_target.py 再转成：
-{"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
-"""
+# [
+#     {"role": "system", "content": system_prompt},
+#     {
+#         "role": "user",
+#         "content": [
+#             {"type": "text", "text": user_text},
+#             {"type": "image_path", "path": "/path/frame.png"},
+#         ],
+#     },
+# ]
+# 图片先用 image_path 占位，等 backends/qwen_target.py 再转成：
+# {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
+
 @dataclass
 class ContextBuilder:
     """Assemble the two messages sent to the target model.
