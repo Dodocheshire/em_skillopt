@@ -1,0 +1,96 @@
+{
+  "env_name": "eb-nav",
+  "eval_set": "mixed",
+  "eval_sets": [
+    "base",
+    "common_sense",
+    "complex_instruction",
+    "long_horizon",
+    "visual_appearance"
+  ],
+  "seed": 42,
+  "ratios": {
+    "train": 0.7,
+    "val": 0.15,
+    "test": 0.15
+  },
+  "counts": {
+    "train": 210,
+    "val": 45,
+    "test": 45
+  },
+  "group_counts": {
+    "train": 42,
+    "val": 9,
+    "test": 9
+  },
+  "groups": {
+    "train": [
+      "scene:FloorPlan11",
+      "scene:FloorPlan12",
+      "scene:FloorPlan14",
+      "scene:FloorPlan15",
+      "scene:FloorPlan20",
+      "scene:FloorPlan21",
+      "scene:FloorPlan211",
+      "scene:FloorPlan212",
+      "scene:FloorPlan213",
+      "scene:FloorPlan214",
+      "scene:FloorPlan215",
+      "scene:FloorPlan216",
+      "scene:FloorPlan217",
+      "scene:FloorPlan219",
+      "scene:FloorPlan22",
+      "scene:FloorPlan220",
+      "scene:FloorPlan221",
+      "scene:FloorPlan222",
+      "scene:FloorPlan224",
+      "scene:FloorPlan226",
+      "scene:FloorPlan227",
+      "scene:FloorPlan228",
+      "scene:FloorPlan229",
+      "scene:FloorPlan230",
+      "scene:FloorPlan26",
+      "scene:FloorPlan27",
+      "scene:FloorPlan29",
+      "scene:FloorPlan30",
+      "scene:FloorPlan312",
+      "scene:FloorPlan315",
+      "scene:FloorPlan316",
+      "scene:FloorPlan320",
+      "scene:FloorPlan321",
+      "scene:FloorPlan322",
+      "scene:FloorPlan323",
+      "scene:FloorPlan324",
+      "scene:FloorPlan325",
+      "scene:FloorPlan326",
+      "scene:FloorPlan327",
+      "scene:FloorPlan328",
+      "scene:FloorPlan329",
+      "scene:FloorPlan330"
+    ],
+    "val": [
+      "scene:FloorPlan13",
+      "scene:FloorPlan16",
+      "scene:FloorPlan18",
+      "scene:FloorPlan19",
+      "scene:FloorPlan24",
+      "scene:FloorPlan28",
+      "scene:FloorPlan313",
+      "scene:FloorPlan314",
+      "scene:FloorPlan319"
+    ],
+    "test": [
+      "scene:FloorPlan17",
+      "scene:FloorPlan218",
+      "scene:FloorPlan223",
+      "scene:FloorPlan225",
+      "scene:FloorPlan23",
+      "scene:FloorPlan25",
+      "scene:FloorPlan311",
+      "scene:FloorPlan317",
+      "scene:FloorPlan318"
+    ]
+  },
+  "created_at": "2026-10-23T12:53:26.198258+00:00"
+}

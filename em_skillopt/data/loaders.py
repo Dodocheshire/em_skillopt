@@ -6,9 +6,24 @@ of domain-specific dataset code.
 """
 from __future__ import annotations
 
-from typing import Any
+import json
+import os
+from pathlib import Path
+from typing import Any, Sequence
 
 from ..core.types import EpisodeSpec
+
+NAV_EVAL_SETS = (
+    "base",
+    "common_sense",
+    "complex_instruction",
+    "visual_appearance",
+    "long_horizon",
+)
+DEFAULT_NAV_DATASET_DIR = (
+    "/home/pengcheng/EM-Benchmark/EmbodiedBench/"
+    "embodiedbench/envs/eb_navigation/datasets"
+)
 
 
 def _max_steps(env: Any, default: int = 30) -> int:
@@ -34,6 +49,46 @@ def _nav_specs(env: Any, *, eval_set: str, split: str) -> list[EpisodeSpec]:
                 },
             )
         )
+    return specs
+
+
+
+
+
+def load_nav_specs_from_files(
+    eval_sets: Sequence[str] = NAV_EVAL_SETS,
+    *,
+    dataset_dir: str | Path | None = None,
+    split: str = "test",
+    max_steps: int = 20,
+) -> list[EpisodeSpec]:
+    """Load nav specs from JSON files without constructing AI2-THOR."""
+
+    root = Path(
+        dataset_dir
+        or os.getenv("EB_NAV_DATASET_DIR", DEFAULT_NAV_DATASET_DIR)
+    )
+    specs: list[EpisodeSpec] = []
+    for eval_set in eval_sets:
+        path = root / f"{eval_set}.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for index, task in enumerate(data["tasks"]):
+            specs.append(
+                EpisodeSpec(
+                    episode_id=f"eb-nav:{eval_set}:{index:04d}",
+                    env_name="eb-nav",
+                    index=index,
+                    instruction=str(task.get("instruction", "")),
+                    capability=eval_set,
+                    split=split,
+                    max_steps=max_steps,
+                    metadata={
+                        "eval_set": eval_set,
+                        "scene": task.get("scene"),
+                        "target": task.get("targetObjectType"),
+                    },
+                )
+            )
     return specs
 
 
@@ -77,7 +132,13 @@ def _hab_specs(env: Any, *, eval_set: str, split: str) -> list[EpisodeSpec]:
                 capability=eval_set,
                 split=split,
                 max_steps=_max_steps(env, 30),
-                metadata={"eval_set": eval_set},
+                metadata={
+                    "eval_set": eval_set,
+                    "scene": (
+                        getattr(episode, "scene_id", None)
+                        or getattr(episode, "scene", None)
+                    ),
+                },
             )
         )
     return specs
@@ -133,4 +194,4 @@ def load_specs(
     return specs
 
 
-__all__ = ["load_specs"]
+__all__ = ["NAV_EVAL_SETS", "load_nav_specs_from_files", "load_specs"]

@@ -1,0 +1,677 @@
+[
+  {
+    "episode_id": "eb-nav:base:0006",
+    "env_name": "eb-nav",
+    "index": 6,
+    "instruction": "navigate to the Tomato in the room and be as close as possible to it",
+    "capability": "base",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "base",
+      "scene": "FloorPlan17",
+      "target": "Tomato"
+    }
+  },
+  {
+    "episode_id": "eb-nav:common_sense:0006",
+    "env_name": "eb-nav",
+    "index": 6,
+    "instruction": "I need a red, juicy fruit that's often used in salads or cooking. Can you navigate to that object and stay close?",
+    "capability": "common_sense",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "common_sense",
+      "scene": "FloorPlan17",
+      "target": "Tomato"
+    }
+  },
+  {
+    "episode_id": "eb-nav:complex_instruction:0006",
+    "env_name": "eb-nav",
+    "index": 6,
+    "instruction": "The fresh scent of vegetables fills the air, along with a faint hint of lemon from the nearby sink. There's a bag of groceries with a few items still unpacked. Please move towards the tomato for me. The kitchen feels lively with activity today.",
+    "capability": "complex_instruction",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "complex_instruction",
+      "scene": "FloorPlan17",
+      "target": "Tomato"
+    }
+  },
+  {
+    "episode_id": "eb-nav:visual_appearance:0006",
+    "env_name": "eb-nav",
+    "index": 6,
+    "instruction": "Move to the round, smooth object with a bright red surface.",
+    "capability": "visual_appearance",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "visual_appearance",
+      "scene": "FloorPlan17",
+      "target": "Tomato"
+    }
+  },
+  {
+    "episode_id": "eb-nav:long_horizon:0006",
+    "env_name": "eb-nav",
+    "index": 6,
+    "instruction": "navigate to the Tomato in the room and be as close as possible to it",
+    "capability": "long_horizon",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "long_horizon",
+      "scene": "FloorPlan17",
+      "target": "Tomato"
+    }
+  },
+  {
+    "episode_id": "eb-nav:base:0012",
+    "env_name": "eb-nav",
+    "index": 12,
+    "instruction": "navigate to the StoveBurner in the room and be as close as possible to it",
+    "capability": "base",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "base",
+      "scene": "FloorPlan23",
+      "target": "StoveBurner"
+    }
+  },
+  {
+    "episode_id": "eb-nav:common_sense:0012",
+    "env_name": "eb-nav",
+    "index": 12,
+    "instruction": "I need a heating element typically found on a cooking stove to prepare my meal. Can you navigate to that object and stay close?",
+    "capability": "common_sense",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "common_sense",
+      "scene": "FloorPlan23",
+      "target": "StoveBurner"
+    }
+  },
+  {
+    "episode_id": "eb-nav:complex_instruction:0012",
+    "env_name": "eb-nav",
+    "index": 12,
+    "instruction": "The rhythmic ticking of the kitchen clock blends with the occasional drip from the faucet. There's a small pile of onions on the table, freshly chopped. Please move towards the stove burner for me. The kitchen has a comforting hum to it.",
+    "capability": "complex_instruction",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "complex_instruction",
+      "scene": "FloorPlan23",
+      "target": "StoveBurner"
+    }
+  },
+  {
+    "episode_id": "eb-nav:visual_appearance:0012",
+    "env_name": "eb-nav",
+    "index": 12,
+    "instruction": "Get near the circular black metal structure with a smooth finish.",
+    "capability": "visual_appearance",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "visual_appearance",
+      "scene": "FloorPlan23",
+      "target": "StoveBurner"
+    }
+  },
+  {
+    "episode_id": "eb-nav:long_horizon:0012",
+    "env_name": "eb-nav",
+    "index": 12,
+    "instruction": "navigate to the StoveBurner in the room and be as close as possible to it",
+    "capability": "long_horizon",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "long_horizon",
+      "scene": "FloorPlan23",
+      "target": "StoveBurner"
+    }
+  },
+  {
+    "episode_id": "eb-nav:base:0014",
+    "env_name": "eb-nav",
+    "index": 14,
+    "instruction": "navigate to the Cup in the room and be as close as possible to it",
+    "capability": "base",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "base",
+      "scene": "FloorPlan25",
+      "target": "Cup"
+    }
+  },
+  {
+    "episode_id": "eb-nav:common_sense:0014",
+    "env_name": "eb-nav",
+    "index": 14,
+    "instruction": "I'd like a container to drink my morning coffee. Can you navigate to that object and stay close?",
+    "capability": "common_sense",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "common_sense",
+      "scene": "FloorPlan25",
+      "target": "Cup"
+    }
+  },
+  {
+    "episode_id": "eb-nav:complex_instruction:0014",
+    "env_name": "eb-nav",
+    "index": 14,
+    "instruction": "The gentle clinking of utensils in the sink adds a rhythmic background to the calm evening. There's a plate of cookies sitting on the counter, half-eaten. Please move towards the cup for me. The atmosphere feels warm and relaxed.",
+    "capability": "complex_instruction",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "complex_instruction",
+      "scene": "FloorPlan25",
+      "target": "Cup"
+    }
+  },
+  {
+    "episode_id": "eb-nav:visual_appearance:0014",
+    "env_name": "eb-nav",
+    "index": 14,
+    "instruction": "Move closer to the small round object with a green surface and a cylindrical shape.",
+    "capability": "visual_appearance",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "visual_appearance",
+      "scene": "FloorPlan25",
+      "target": "Cup"
+    }
+  },
+  {
+    "episode_id": "eb-nav:long_horizon:0014",
+    "env_name": "eb-nav",
+    "index": 14,
+    "instruction": "navigate to the Cup in the room and be as close as possible to it",
+    "capability": "long_horizon",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "long_horizon",
+      "scene": "FloorPlan25",
+      "target": "Cup"
+    }
+  },
+  {
+    "episode_id": "eb-nav:base:0027",
+    "env_name": "eb-nav",
+    "index": 27,
+    "instruction": "navigate to the GarbageCan in the room and be as close as possible to it",
+    "capability": "base",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "base",
+      "scene": "FloorPlan218",
+      "target": "GarbageCan"
+    }
+  },
+  {
+    "episode_id": "eb-nav:common_sense:0027",
+    "env_name": "eb-nav",
+    "index": 27,
+    "instruction": "I have some waste that needs to be disposed of properly. Please navigate to that object and stay near it.",
+    "capability": "common_sense",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "common_sense",
+      "scene": "FloorPlan218",
+      "target": "GarbageCan"
+    }
+  },
+  {
+    "episode_id": "eb-nav:complex_instruction:0027",
+    "env_name": "eb-nav",
+    "index": 27,
+    "instruction": "The soft murmur of conversation from another room blends with the sound of a gentle breeze. A framed piece of art adds character to the wall. Could you move toward the garbage can and stay close? The texture of the carpet feels soft and inviting.",
+    "capability": "complex_instruction",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "complex_instruction",
+      "scene": "FloorPlan218",
+      "target": "GarbageCan"
+    }
+  },
+  {
+    "episode_id": "eb-nav:visual_appearance:0027",
+    "env_name": "eb-nav",
+    "index": 27,
+    "instruction": "Move towards the tall, cylindrical container with a clean white finish.",
+    "capability": "visual_appearance",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "visual_appearance",
+      "scene": "FloorPlan218",
+      "target": "GarbageCan"
+    }
+  },
+  {
+    "episode_id": "eb-nav:long_horizon:0027",
+    "env_name": "eb-nav",
+    "index": 27,
+    "instruction": "navigate to the GarbageCan in the room and be as close as possible to it",
+    "capability": "long_horizon",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "long_horizon",
+      "scene": "FloorPlan218",
+      "target": "GarbageCan"
+    }
+  },
+  {
+    "episode_id": "eb-nav:base:0032",
+    "env_name": "eb-nav",
+    "index": 32,
+    "instruction": "navigate to the Plate in the room and be as close as possible to it",
+    "capability": "base",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "base",
+      "scene": "FloorPlan223",
+      "target": "Plate"
+    }
+  },
+  {
+    "episode_id": "eb-nav:common_sense:0032",
+    "env_name": "eb-nav",
+    "index": 32,
+    "instruction": "I need a flat dish to hold my food. Can you navigate to that object and stay close?",
+    "capability": "common_sense",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "common_sense",
+      "scene": "FloorPlan223",
+      "target": "Plate"
+    }
+  },
+  {
+    "episode_id": "eb-nav:complex_instruction:0032",
+    "env_name": "eb-nav",
+    "index": 32,
+    "instruction": "The soft clinking of silverware from the kitchen reminds me of a peaceful family dinner. A magazine with a vibrant cover lies on the coffee table. Please move toward the plate and stay as close as possible. The sunlight streaming through the window creates beautiful reflections on the glassware.",
+    "capability": "complex_instruction",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "complex_instruction",
+      "scene": "FloorPlan223",
+      "target": "Plate"
+    }
+  },
+  {
+    "episode_id": "eb-nav:visual_appearance:0032",
+    "env_name": "eb-nav",
+    "index": 32,
+    "instruction": "Get near the flat, round item with a shiny golden surface.",
+    "capability": "visual_appearance",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "visual_appearance",
+      "scene": "FloorPlan223",
+      "target": "Plate"
+    }
+  },
+  {
+    "episode_id": "eb-nav:long_horizon:0032",
+    "env_name": "eb-nav",
+    "index": 32,
+    "instruction": "navigate to the Plate in the room and be as close as possible to it",
+    "capability": "long_horizon",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "long_horizon",
+      "scene": "FloorPlan223",
+      "target": "Plate"
+    }
+  },
+  {
+    "episode_id": "eb-nav:base:0034",
+    "env_name": "eb-nav",
+    "index": 34,
+    "instruction": "navigate to the Vase in the room and be as close as possible to it",
+    "capability": "base",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "base",
+      "scene": "FloorPlan225",
+      "target": "Vase"
+    }
+  },
+  {
+    "episode_id": "eb-nav:common_sense:0034",
+    "env_name": "eb-nav",
+    "index": 34,
+    "instruction": "I need a container to hold fresh flowers for decoration. Can you navigate to that object and stay close?",
+    "capability": "common_sense",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "common_sense",
+      "scene": "FloorPlan225",
+      "target": "Vase"
+    }
+  },
+  {
+    "episode_id": "eb-nav:complex_instruction:0034",
+    "env_name": "eb-nav",
+    "index": 34,
+    "instruction": "The faint scent of blooming flowers fills the air, making the room feel vibrant and fresh. A small picture frame with a family photo stands proudly on the shelf. Please move toward the vase and stay close to it. The soft glow from the nearby lamp highlights the vase's elegant curves.",
+    "capability": "complex_instruction",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "complex_instruction",
+      "scene": "FloorPlan225",
+      "target": "Vase"
+    }
+  },
+  {
+    "episode_id": "eb-nav:visual_appearance:0034",
+    "env_name": "eb-nav",
+    "index": 34,
+    "instruction": "Find the tall, narrow object with a reflective silver surface and a rounded top opening.",
+    "capability": "visual_appearance",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "visual_appearance",
+      "scene": "FloorPlan225",
+      "target": "Vase"
+    }
+  },
+  {
+    "episode_id": "eb-nav:long_horizon:0034",
+    "env_name": "eb-nav",
+    "index": 34,
+    "instruction": "navigate to the Vase in the room and be as close as possible to it",
+    "capability": "long_horizon",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "long_horizon",
+      "scene": "FloorPlan225",
+      "target": "Vase"
+    }
+  },
+  {
+    "episode_id": "eb-nav:base:0040",
+    "env_name": "eb-nav",
+    "index": 40,
+    "instruction": "navigate to the Laptop in the room and be as close as possible to it",
+    "capability": "base",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "base",
+      "scene": "FloorPlan311",
+      "target": "Laptop"
+    }
+  },
+  {
+    "episode_id": "eb-nav:common_sense:0040",
+    "env_name": "eb-nav",
+    "index": 40,
+    "instruction": "I need to access that digital device which people use to do their work such as attending online meeting. Can you navigate to that object and stay close?",
+    "capability": "common_sense",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "common_sense",
+      "scene": "FloorPlan311",
+      "target": "Laptop"
+    }
+  },
+  {
+    "episode_id": "eb-nav:complex_instruction:0040",
+    "env_name": "eb-nav",
+    "index": 40,
+    "instruction": "The sound of rain pattering against the window is very soothing. The aroma of freshly brewed coffee fills the room, making it feel warm and inviting. Please navigate to the laptop and position yourself close to it. The soft rug underfoot is a delightful addition to the space.",
+    "capability": "complex_instruction",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "complex_instruction",
+      "scene": "FloorPlan311",
+      "target": "Laptop"
+    }
+  },
+  {
+    "episode_id": "eb-nav:visual_appearance:0040",
+    "env_name": "eb-nav",
+    "index": 40,
+    "instruction": "Get near the cylindrical object with a smooth gray surface and a handle on the side.",
+    "capability": "visual_appearance",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "visual_appearance",
+      "scene": "FloorPlan311",
+      "target": "Laptop"
+    }
+  },
+  {
+    "episode_id": "eb-nav:long_horizon:0040",
+    "env_name": "eb-nav",
+    "index": 40,
+    "instruction": "navigate to the Laptop in the room and be as close as possible to it",
+    "capability": "long_horizon",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "long_horizon",
+      "scene": "FloorPlan311",
+      "target": "Laptop"
+    }
+  },
+  {
+    "episode_id": "eb-nav:base:0046",
+    "env_name": "eb-nav",
+    "index": 46,
+    "instruction": "navigate to the LaundryHamper in the room and be as close as possible to it",
+    "capability": "base",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "base",
+      "scene": "FloorPlan317",
+      "target": "LaundryHamper"
+    }
+  },
+  {
+    "episode_id": "eb-nav:common_sense:0046",
+    "env_name": "eb-nav",
+    "index": 46,
+    "instruction": "I need a basket to gather my dirty laundry. Can you navigate to that object and stay close?",
+    "capability": "common_sense",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "common_sense",
+      "scene": "FloorPlan317",
+      "target": "LaundryHamper"
+    }
+  },
+  {
+    "episode_id": "eb-nav:complex_instruction:0046",
+    "env_name": "eb-nav",
+    "index": 46,
+    "instruction": "The room smells faintly of fabric softener, giving it a fresh and clean vibe. The framed art on the wall adds a pop of color to the otherwise neutral space. Please navigate to the laundry hamper and stay nearby. The soft lighting adds a warm ambiance.",
+    "capability": "complex_instruction",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "complex_instruction",
+      "scene": "FloorPlan317",
+      "target": "LaundryHamper"
+    }
+  },
+  {
+    "episode_id": "eb-nav:visual_appearance:0046",
+    "env_name": "eb-nav",
+    "index": 46,
+    "instruction": "Head closer to the tall green container with a dark finish and woven pattern.",
+    "capability": "visual_appearance",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "visual_appearance",
+      "scene": "FloorPlan317",
+      "target": "LaundryHamper"
+    }
+  },
+  {
+    "episode_id": "eb-nav:long_horizon:0046",
+    "env_name": "eb-nav",
+    "index": 46,
+    "instruction": "navigate to the LaundryHamper in the room and be as close as possible to it",
+    "capability": "long_horizon",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "long_horizon",
+      "scene": "FloorPlan317",
+      "target": "LaundryHamper"
+    }
+  },
+  {
+    "episode_id": "eb-nav:base:0047",
+    "env_name": "eb-nav",
+    "index": 47,
+    "instruction": "navigate to the Laptop in the room and be as close as possible to it",
+    "capability": "base",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "base",
+      "scene": "FloorPlan318",
+      "target": "Laptop"
+    }
+  },
+  {
+    "episode_id": "eb-nav:common_sense:0047",
+    "env_name": "eb-nav",
+    "index": 47,
+    "instruction": "I need to use my portable device that has a screen and a keyboard. Please navigate to that object and stay near it.",
+    "capability": "common_sense",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "common_sense",
+      "scene": "FloorPlan318",
+      "target": "Laptop"
+    }
+  },
+  {
+    "episode_id": "eb-nav:complex_instruction:0047",
+    "env_name": "eb-nav",
+    "index": 47,
+    "instruction": "The crisp morning air and soft sunlight make the day feel perfect. A small vase with fresh flowers sits on the corner of the table, adding a cheerful vibe. Could you please move close to the laptop and remain there? The faint sound of birds chirping outside is delightful.",
+    "capability": "complex_instruction",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "complex_instruction",
+      "scene": "FloorPlan318",
+      "target": "Laptop"
+    }
+  },
+  {
+    "episode_id": "eb-nav:visual_appearance:0047",
+    "env_name": "eb-nav",
+    "index": 47,
+    "instruction": "Get near the cylindrical object with a smooth gray surface and a handle on the side.",
+    "capability": "visual_appearance",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "visual_appearance",
+      "scene": "FloorPlan318",
+      "target": "Laptop"
+    }
+  },
+  {
+    "episode_id": "eb-nav:long_horizon:0047",
+    "env_name": "eb-nav",
+    "index": 47,
+    "instruction": "navigate to the Laptop in the room and be as close as possible to it",
+    "capability": "long_horizon",
+    "split": "test",
+    "max_steps": 20,
+    "seed": 42,
+    "metadata": {
+      "eval_set": "long_horizon",
+      "scene": "FloorPlan318",
+      "target": "Laptop"
+    }
+  }
+]
