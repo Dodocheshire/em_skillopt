@@ -18,6 +18,9 @@ TRAIN_LIMIT="${TRAIN_LIMIT:-8}"
 VAL_LIMIT="${VAL_LIMIT:-4}"
 OUT="${OUT:-$PROJECT/runs/method_a/eb-nav}"
 SPLIT_DIR="${SPLIT_DIR:-$PROJECT/splits/eb-nav}"
+GATE_METRIC="${GATE_METRIC:-hard}"
+GATE_MIXED_WEIGHT="${GATE_MIXED_WEIGHT:-0.5}"
+TEST_LIMIT="${TEST_LIMIT:-0}"
 
 ENV_FILE=/home/pengcheng/SkillOpt/.env
 if [[ -f "$ENV_FILE" ]]; then
@@ -48,4 +51,7 @@ exec "$PY" -m em_skillopt.cli.train \
   --max-steps "${MAX_STEPS:-0}" \
   --max-planner-steps "${MAX_PLANNER_STEPS:-20}" \
   --max-tokens "${MAX_TOKENS:-8192}" \
-  --max-edits "${MAX_EDITS:-3}"
+  --max-edits "${MAX_EDITS:-3}" \
+  --gate-metric "$GATE_METRIC" \
+  --gate-mixed-weight "$GATE_MIXED_WEIGHT" \
+  --test-limit "$TEST_LIMIT"

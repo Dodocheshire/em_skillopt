@@ -63,6 +63,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-skill-chars", type=int, default=6000)
     parser.add_argument("--max-edits", type=int, default=3)
     parser.add_argument("--min-reward-delta", type=float, default=0.0)
+    parser.add_argument(
+        "--gate-metric",
+        default="hard",
+        choices=["hard", "soft", "mixed"],
+    )
+    parser.add_argument("--gate-mixed-weight", type=float, default=0.5)
+    parser.add_argument("--test-limit", type=int, default=0)
     parser.add_argument("--n-shots", type=int, default=-1)
     parser.add_argument("--no-detection", action="store_true")
     parser.add_argument("--language-only", action="store_true")
@@ -80,6 +87,14 @@ def _chunks(items, size: int):
     size = max(1, size)
     for start in range(0, len(items), size):
         yield items[start:start + size]
+
+
+def _step_buffer_text(entries: list[str], limit: int = 12) -> str:
+    """Format previous failure patterns / rejected edits for reflect."""
+    recent = entries[-limit:]
+    if not recent:
+        return ""
+    return "\n".join(f"- {entry}" for entry in recent)
 
 
 def _make_batches(specs, batch_size: int, rng: random.Random):
@@ -171,6 +186,10 @@ def main() -> None:
         store.save("", version=0, promote_best=True)
     current = store.load_current()
     current_val_summary = None
+    best_val_summary = None
+    best_step = 0
+    val_cache: dict = {}
+    step_buffer: list[str] = []
 
     step = 0
     try:
@@ -233,7 +252,8 @@ def main() -> None:
                         current.content or None,
                         llm=client,
                         out_dir=step_dir / "reflect" / f"mb_{mb_index:02d}",
-                        config=ReflectConfig(),
+                        config=ReflectConfig(max_edits=args.max_edits),
+                        context=_step_buffer_text(step_buffer),
                     )
 
                 reflect_workers = min(
@@ -257,11 +277,16 @@ def main() -> None:
                     patches.extend(patches_by_index[index])
 
                 print(f"[train] step {step} | aggregate + clip")
-                merged_patch = merge_patches(patches)
+                merged_patch = merge_patches(
+                    patches,
+                    llm=client,
+                    current_skill=current.content,
+                )
                 selected_patch = rank_and_clip(
                     merged_patch,
                     max_edits=args.max_edits,
                     current_skill=current.content,
+                    llm=client,
                 )
                 (step_dir / "merged_patch.json").write_text(
                     json.dumps(merged_patch, ensure_ascii=False, indent=2),
@@ -303,14 +328,31 @@ def main() -> None:
                         min_reward_delta=args.min_reward_delta,
                         workers=args.parallel_workers or len(val_specs),
                         current_summary=current_val_summary,
+                        best_summary=best_val_summary,
+                        best_step=best_step,
+                        metric=args.gate_metric,
+                        mixed_weight=args.gate_mixed_weight,
+                        candidate_cache=val_cache,
+                        step=step,
                     )
                     gate_dict = gate.to_dict()
+                    if current_val_summary is None:
+                        current_val_summary = gate.current
+                    if best_val_summary is None:
+                        best_val_summary = gate.best
+                        best_step = gate.best_step
                     if gate.accepted and update.content.strip():
-                        current = store.save(update.content, promote_best=True)
+                        current = store.save(
+                            update.content,
+                            promote_best=(gate.action == "accept_new_best"),
+                        )
                         current_val_summary = gate.candidate
+                        if gate.action == "accept_new_best":
+                            best_val_summary = gate.best
+                            best_step = gate.best_step
                         print(
-                            f"[train] accepted step {step}, "
-                            f"version {current.version}"
+                            f"[train] accepted step {step} "
+                            f"({gate.action}), version {current.version}"
                         )
                     else:
                         print(f"[train] rejected step {step}: {gate.reason}")
@@ -347,13 +389,34 @@ def main() -> None:
                     "accepted_edits": accepted_edits,
                     "rejected_edits": rejected_edits,
                     "accepted": accepted,
+                    "action": str(gate_dict.get("action", "reject")),
                     "reason": str(gate_dict.get("reason", "")),
+                    "gate_metric": args.gate_metric,
+                    "best_step": best_step,
                     "skill_version": current.version,
                 }
                 (step_dir / "step.json").write_text(
                     json.dumps(record, ensure_ascii=False, indent=2),
                     encoding="utf-8",
                 )
+
+                # Step buffer: failure patterns and rejected edits are fed to
+                # the next reflect call, matching SkillOpt's step context.
+                for result in train_results:
+                    if result.success:
+                        continue
+                    step_buffer.append(
+                        f"step {step} failure "
+                        f"{result.spec.capability}/{result.spec.episode_id}: "
+                        f"{result.failure_reason or 'unknown'}"
+                    )
+                if not accepted:
+                    for edit in selected_patch.get("edits", []):
+                        content = str(edit.get("content", "")).strip()
+                        if content:
+                            step_buffer.append(
+                                f"step {step} rejected edit: {content}"
+                            )
 
             print("\n" + "=" * 72)
             print(
@@ -363,6 +426,34 @@ def main() -> None:
                 f"rejected_edits={epoch_rejected_edits}"
             )
             print("=" * 72)
+
+        test_specs = _slice(list(bundle.test), args.test_limit)
+        if test_specs:
+            print(
+                f"\n[train] final best-skill test | "
+                f"episodes={len(test_specs)}"
+            )
+            best = store.load_best()
+            test_dir = out / "test_best"
+            test_factory = _make_runner_factory(
+                args,
+                test_dir,
+                test_dir / "images",
+                client,
+            )
+            rollout_specs(
+                test_specs,
+                best.content or None,
+                out_dir=test_dir,
+                runner_factory=test_factory,
+                config=RolloutConfig(
+                    resume=False,
+                    verbose=True,
+                    workers=args.parallel_workers or len(test_specs),
+                ),
+            )
+        else:
+            print("[train] no test split; skip final test")
 
         print(f"[train] done. best skill: {store.best_path}")
     finally:

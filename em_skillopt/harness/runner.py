@@ -80,6 +80,8 @@ class EpisodeRunner:
         done = False
         invalid_actions = 0
         format_errors = 0
+        target_system_prompt = ""
+        target_user_prompt = ""
 
         for planner_step in range(self.config.max_planner_steps):
             messages = self.context.build(
@@ -89,6 +91,21 @@ class EpisodeRunner:
                 skill,
                 planner_step=planner_step,
             )
+            if planner_step == 0:
+                for message in messages:
+                    content = message.get("content", "")
+                    if isinstance(content, list):
+                        text = "\n".join(
+                            str(part.get("text", ""))
+                            for part in content
+                            if isinstance(part, dict) and part.get("type") == "text"
+                        )
+                    else:
+                        text = str(content)
+                    if message.get("role") == "system":
+                        target_system_prompt = text
+                    elif message.get("role") == "user":
+                        target_user_prompt = text
 
             response = self.llm.generate(
                 messages,
@@ -196,6 +213,8 @@ class EpisodeRunner:
             format_errors=format_errors,
             elapsed_s=elapsed_s,
             failure_reason=failure_reason,
+            target_system_prompt=target_system_prompt,
+            target_user_prompt=target_user_prompt,
             plans=plans,
             trajectory=history,
             token_usage=token_usage,

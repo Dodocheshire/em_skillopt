@@ -136,6 +136,9 @@ class EpisodeResult:
     format_errors: int = 0
     elapsed_s: float = 0.0
     failure_reason: str = ""
+    # First target prompt, retained for SkillOpt-style reflection context.
+    target_system_prompt: str = ""
+    target_user_prompt: str = ""
     plans: list[PlanRecord] = field(default_factory=list)
     trajectory: list[TrajectoryStep] = field(default_factory=list)
     token_usage: TokenUsage = field(default_factory=TokenUsage)
