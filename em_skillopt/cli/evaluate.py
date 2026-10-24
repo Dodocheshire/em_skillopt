@@ -6,11 +6,12 @@ Two modes:
 2. Mixed-capability split mode: ``--split-dir splits/eb-nav --split-name test``
 
 In split mode, specs from several eval sets are grouped by capability and
-executed through ``CapabilityBatchRunner``.
+executed through parallel episode workers.
 """
 from __future__ import annotations
 
 import argparse
+import itertools
 import os
 from pathlib import Path
 from typing import Any
@@ -27,11 +28,10 @@ from ..harness.adapters.alf import AlfAdapter
 from ..harness.adapters.hab import HabAdapter
 from ..harness.adapters.man import ManAdapter
 from ..harness.adapters.nav import NavAdapter
-from ..harness.batch import BatchConfig, BatchRunner
-from ..harness.capability import CapabilityBatchRunner
 from ..harness.parsing import ActionIdPlanParser, ManipulationPlanParser
 from ..harness.prompts import build_context, response_format_for
 from ..harness.runner import EpisodeRunner, RunnerConfig
+from ..skillopt.rollout import RolloutConfig, rollout_specs
 
 EM_ROOT = Path("/home/pengcheng/EM-Benchmark/EmbodiedBench")
 COPPELIA = (
@@ -155,6 +155,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--split", default="test")
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument(
+        "--parallel-workers",
+        type=int,
+        default=1,
+        help="parallel episode workers (1 = sequential)",
+    )
     parser.add_argument("--out", default="")
     parser.add_argument("--model", default="qwen3.8-27b")
     parser.add_argument("--proxy", default="http://127.0.0.1:7890")
@@ -204,90 +210,11 @@ def make_parser(env_name: str):
     )
 
 
-def run_single_capability(
-    args: argparse.Namespace,
-    out: Path,
-    skill: str | None,
-    client: QwenTargetClient,
-) -> None:
-    env = build_env(args.env, args.eval_set, out)
-    try:
-        adapter = build_adapter(args.env, env, out, args)
-        context = build_context(
-            args.env,
-            env,
-            eval_set=args.eval_set,
-            n_shots=args.n_shots,
-            language_only=args.language_only,
-        )
-        specs = load_specs(
-            args.env,
-            env,
-            eval_set=args.eval_set,
-            split=args.split,
-            limit=args.limit,
-        )
-        if not specs:
-            raise RuntimeError("no episodes loaded")
-
-        runner = EpisodeRunner(
-            env=adapter,
-            context=context,
-            parser=make_parser(args.env),
-            llm=client,
-            config=make_runner_config(args),
-        )
-        artifacts = RunArtifacts(out)
-        artifacts.save_json("config.json", vars(args))
-        results = BatchRunner(
-            runner,
-            artifacts=artifacts,
-            config=BatchConfig(
-                resume=not args.no_resume,
-                continue_on_error=True,
-            ),
-        ).run(specs, skill=skill)
-
-        summary = summarize(results, env_name=args.env, split=args.split)
-        artifacts.save_summary(summary)
-        artifacts.save_json(
-            "em_summary.json",
-            em_summary(
-                results,
-                env_name=args.env,
-                split=args.split,
-                save_path=str(out),
-            ),
-        )
-        print(format_summary(summary))
-    finally:
-        env.close()
-
-
-def run_split_dir(
-    args: argparse.Namespace,
-    out: Path,
-    skill: str | None,
-    client: QwenTargetClient,
-) -> None:
-    bundle = load_splits(args.split_dir)
-    if bundle.manifest.get("env_name") not in ("", None, args.env):
-        raise ValueError(
-            f"split belongs to {bundle.manifest.get('env_name')}, "
-            f"not {args.env}"
-        )
-
-    specs = list(getattr(bundle, args.split_name))
-    if args.limit and args.limit > 0:
-        specs = specs[: args.limit]
-    if not specs:
-        raise RuntimeError(f"no episodes in {args.split_dir}/{args.split_name}")
-
-    artifacts = RunArtifacts(out)
-    artifacts.save_json("config.json", vars(args))
+def make_runner_factory(args, out: Path, client):
+    counter = itertools.count()
 
     def make_runner(capability: str) -> EpisodeRunner:
-        cap_images = out / "images" / capability
+        cap_images = out / "images" / capability / f"runner_{next(counter):03d}"
         env = build_env(
             args.env,
             capability,
@@ -316,16 +243,91 @@ def run_split_dir(
             config=make_runner_config(args),
         )
 
-    results = CapabilityBatchRunner(
-        make_runner,
-        artifacts=artifacts,
-        config=BatchConfig(
-            resume=not args.no_resume,
-            continue_on_error=True,
-        ),
-    ).run(specs, skill=skill)
+    return make_runner
 
-    split_label = f"dev_{args.split_name}" # 表示这是我们自己切的 development split
+
+def run_single_capability(
+    args: argparse.Namespace,
+    out: Path,
+    skill: str | None,
+    client: QwenTargetClient,
+) -> None:
+    env = build_env(args.env, args.eval_set, out)
+    try:
+        specs = load_specs(
+            args.env,
+            env,
+            eval_set=args.eval_set,
+            split=args.split,
+            limit=args.limit,
+        )
+    finally:
+        env.close()
+    if not specs:
+        raise RuntimeError("no episodes loaded")
+
+    artifacts = RunArtifacts(out)
+    artifacts.save_json("config.json", vars(args))
+    results = rollout_specs(
+        specs,
+        skill,
+        out_dir=out,
+        runner_factory=make_runner_factory(args, out, client),
+        config=RolloutConfig(
+            resume=not args.no_resume,
+            verbose=False,
+            workers=max(1, args.parallel_workers),
+        ),
+    )
+
+    summary = summarize(results, env_name=args.env, split=args.split)
+    artifacts.save_summary(summary)
+    artifacts.save_json(
+        "em_summary.json",
+        em_summary(
+            results,
+            env_name=args.env,
+            split=args.split,
+            save_path=str(out),
+        ),
+    )
+    print(format_summary(summary))
+
+
+def run_split_dir(
+    args: argparse.Namespace,
+    out: Path,
+    skill: str | None,
+    client: QwenTargetClient,
+) -> None:
+    bundle = load_splits(args.split_dir)
+    if bundle.manifest.get("env_name") not in ("", None, args.env):
+        raise ValueError(
+            f"split belongs to {bundle.manifest.get('env_name')}, "
+            f"not {args.env}"
+        )
+
+    specs = list(getattr(bundle, args.split_name))
+    if args.limit and args.limit > 0:
+        specs = specs[: args.limit]
+    if not specs:
+        raise RuntimeError(f"no episodes in {args.split_dir}/{args.split_name}")
+
+    artifacts = RunArtifacts(out)
+    artifacts.save_json("config.json", vars(args))
+    results = rollout_specs(
+        specs,
+        skill,
+        out_dir=out,
+        runner_factory=make_runner_factory(args, out, client),
+        config=RolloutConfig(
+            resume=not args.no_resume,
+            verbose=False,
+            workers=max(1, args.parallel_workers),
+        ),
+    )
+
+    split_label = f"dev_{args.split_name}" # development split, not official test
     summary = summarize(results, env_name=args.env, split=split_label)
     artifacts.save_summary(summary)
     artifacts.save_json(

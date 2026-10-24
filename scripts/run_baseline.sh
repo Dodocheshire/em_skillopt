@@ -27,7 +27,9 @@ PROXY="${PROXY:-http://127.0.0.1:7890}"
 LIMIT="${LIMIT:-0}"
 MAX_STEPS="${MAX_STEPS:-0}"
 MAX_PLANNER_STEPS="${MAX_PLANNER_STEPS:-20}"
-MAX_TOKENS="${MAX_TOKENS:-8192}"
+MAX_TOKENS="${MAX_TOKENS:-4096}"
+PARALLEL_WORKERS="${PARALLEL_WORKERS:-8}"
+MAN_PARALLEL_WORKERS="${MAN_PARALLEL_WORKERS:-1}"
 OUT_ROOT="${OUT_ROOT:-$PROJECT/artifacts/baseline}"
 
 export DISPLAY="${DISPLAY:-:1}"
@@ -57,7 +59,14 @@ run_one() {
     local python_bin="$2"
     local eval_set="$3"
     local out="$OUT_ROOT/$env_name/$eval_set"
+    local workers="$PARALLEL_WORKERS"
     local -a extra=()
+
+    # CoppeliaSim is not safe to create in multiple threads: Qt requires the
+    # QApplication to be created on the process main thread.
+    if [[ "$env_name" == "eb-man" ]]; then
+        workers="$MAN_PARALLEL_WORKERS"
+    fi
 
     if [[ "$env_name" == "eb-man" && "${MAN_NO_DETECTION:-0}" == "1" ]]; then
         extra+=(--no-detection)
@@ -76,6 +85,7 @@ run_one() {
         --max-steps "$MAX_STEPS" \
         --max-planner-steps "$MAX_PLANNER_STEPS" \
         --max-tokens "$MAX_TOKENS" \
+        --parallel-workers "$workers" \
         --model "$MODEL" \
         --proxy "$PROXY" \
         --out "$out" \

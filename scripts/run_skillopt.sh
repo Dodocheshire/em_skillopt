@@ -12,6 +12,8 @@ PROXY="${PROXY:-http://127.0.0.1:7890}"
 EPOCHS="${EPOCHS:-${STEPS:-1}}"
 ROLLOUT_BATCH_SIZE="${ROLLOUT_BATCH_SIZE:-8}"
 REFLECTION_MINIBATCH_SIZE="${REFLECTION_MINIBATCH_SIZE:-8}"
+REFLECTION_WORKERS="${REFLECTION_WORKERS:-0}"
+PARALLEL_WORKERS="${PARALLEL_WORKERS:-8}"
 TRAIN_LIMIT="${TRAIN_LIMIT:-8}"
 VAL_LIMIT="${VAL_LIMIT:-4}"
 OUT="${OUT:-$PROJECT/runs/method_a/eb-nav}"
@@ -39,6 +41,8 @@ exec "$PY" -m em_skillopt.cli.train \
   --epochs "$EPOCHS" \
   --rollout-batch-size "$ROLLOUT_BATCH_SIZE" \
   --reflection-minibatch-size "$REFLECTION_MINIBATCH_SIZE" \
+  --reflection-workers "$REFLECTION_WORKERS" \
+  --parallel-workers "$PARALLEL_WORKERS" \
   --train-limit "$TRAIN_LIMIT" \
   --val-limit "$VAL_LIMIT" \
   --max-steps "${MAX_STEPS:-0}" \

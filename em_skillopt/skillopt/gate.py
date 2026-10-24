@@ -59,13 +59,18 @@ def _eval_skill(
     *,
     runner_factory: RunnerFactory,
     out_dir: Path,
+    workers: int = 1,
 ) -> list[EpisodeResult]:
     return rollout_specs(
         specs,
         skill,
         out_dir=out_dir,
         runner_factory=runner_factory,
-        config=RolloutConfig(resume=False, verbose=False),
+        config=RolloutConfig(
+            resume=False,
+            verbose=False,
+            workers=workers,
+        ),
     )
 
 
@@ -77,6 +82,8 @@ def gate_candidate(
     runner_factory: RunnerFactory,
     out_dir: str | Path,
     min_reward_delta: float = 0.0,
+    workers: int = 1,
+    current_summary: EvalSummary | None = None,
 ) -> GateResult:
     """Evaluate current vs candidate on the same val specs."""
 
@@ -86,23 +93,34 @@ def gate_candidate(
     root = Path(out_dir).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
 
-    print(f"[gate] current skill | val episodes={len(val_specs)}")
-    current_results = _eval_skill(
-        current_skill,
-        val_specs,
-        runner_factory=runner_factory,
-        out_dir=root / "current",
-    )
+    if current_summary is None:
+        print(f"[gate] current skill | val episodes={len(val_specs)}")
+        current_results = _eval_skill(
+            current_skill,
+            val_specs,
+            runner_factory=runner_factory,
+            out_dir=root / "current",
+            workers=workers,
+        )
+        current = summarize(
+            current_results,
+            env_name=val_specs[0].env_name,
+            split="val",
+        )
+    else:
+        print("[gate] reuse current val score")
+        current = current_summary
+
     print(f"[gate] candidate skill | val episodes={len(val_specs)}")
     candidate_results = _eval_skill(
         candidate_skill,
         val_specs,
         runner_factory=runner_factory,
         out_dir=root / "candidate",
+        workers=workers,
     )
 
     env_name = val_specs[0].env_name
-    current = summarize(current_results, env_name=env_name, split="val")
     candidate = summarize(candidate_results, env_name=env_name, split="val")
     accepted, reason = decide_gate(
         current,

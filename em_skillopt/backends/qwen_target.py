@@ -164,8 +164,6 @@ class QwenTargetClient:
             )
             template_kwargs["enable_thinking"] = self.config.enable_thinking
             extra_body["chat_template_kwargs"] = template_kwargs
-        if extra_body:
-            payload["extra_body"] = extra_body
         if response_format is None:
             response_format = self.config.response_format
         if response_format is not None:
@@ -174,7 +172,13 @@ class QwenTargetClient:
         last_error: Exception | None = None
         for attempt in range(max(1, self.config.max_retries)):
             try:
-                response = self.client.chat.completions.create(**payload)
+                # ``extra_body`` is an OpenAI SDK keyword that merges its
+                # entries into the request body.  Sending it as a JSON field
+                # would leave ``chat_template_kwargs`` nested and ignored.
+                response = self.client.chat.completions.create(
+                    **payload,
+                    extra_body=extra_body or None,
+                )
                 text = response.choices[0].message.content or ""
                 usage = getattr(response, "usage", None)
                 return LLMResponse(

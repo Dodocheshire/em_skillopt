@@ -151,7 +151,8 @@ def _normalize_patch(raw: str) -> dict[str, Any]:
         return {"reasoning": "", "edits": [], "parse_error": "not an object"}
 
     edits: list[dict[str, Any]] = []
-    for item in value.get("edits", [])[:5]:
+    # The reflection prompt allows at most 3 edits per minibatch.
+    for item in value.get("edits", [])[:3]:
         if not isinstance(item, dict):
             continue
         op = str(item.get("op", "append"))

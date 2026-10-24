@@ -8,6 +8,7 @@ client is owned by the caller.
 from __future__ import annotations
 
 import hashlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -25,6 +26,7 @@ class RolloutConfig:
     resume: bool = True
     continue_on_error: bool = True
     verbose: bool = True
+    workers: int = 1
 
 
 def _skill_hash(skill: str | None) -> str:
@@ -70,17 +72,27 @@ def rollout_specs(
             "capabilities": sorted({spec.capability for spec in specs}),
             "skill_sha256": _skill_hash(skill),
             "resume": cfg.resume,
+            "workers": cfg.workers,
         },
     )
 
-    results = CapabilityBatchRunner(
-        runner_factory,
-        artifacts=artifacts,
-        config=BatchConfig(
-            resume=cfg.resume,
-            continue_on_error=cfg.continue_on_error,
-        ),
-    ).run(specs, skill=skill)
+    if cfg.workers and cfg.workers > 1:
+        results = _parallel_rollout(
+            specs,
+            skill,
+            artifacts=artifacts,
+            runner_factory=runner_factory,
+            config=cfg,
+        )
+    else:
+        results = CapabilityBatchRunner(
+            runner_factory,
+            artifacts=artifacts,
+            config=BatchConfig(
+                resume=cfg.resume,
+                continue_on_error=cfg.continue_on_error,
+            ),
+        ).run(specs, skill=skill)
 
     rollouts = []
     for result in results:
@@ -102,6 +114,63 @@ def rollout_specs(
         print(format_summary(summary))
 
     return results
+
+
+def _parallel_rollout(
+    specs: Sequence[EpisodeSpec],
+    skill: str | None,
+    *,
+    artifacts: RunArtifacts,
+    runner_factory: RunnerFactory,
+    config: RolloutConfig,
+) -> list[EpisodeResult]:
+    """Run independent episodes concurrently; each worker owns one env."""
+
+    pending = [
+        spec for spec in specs
+        if not (
+            config.resume
+            and artifacts.episode_done(spec.episode_id)
+        )
+    ]
+    results_by_id: dict[str, EpisodeResult] = {}
+    if not pending:
+        return []
+
+    def run_one(spec: EpisodeSpec) -> EpisodeResult:
+        runner = runner_factory(spec.capability)
+        try:
+            return runner.run_episode(spec, skill=skill)
+        finally:
+            env = getattr(runner, "env", None)
+            close = getattr(env, "close", None)
+            if callable(close):
+                close()
+
+    workers = min(max(1, config.workers), len(pending))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(run_one, spec): spec
+            for spec in pending
+        }
+        for future in as_completed(futures):
+            spec = futures[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                print(f"[parallel] {spec.episode_id} failed: {exc!r}")
+                if not config.continue_on_error:
+                    raise
+                continue
+            artifacts.save_episode(result)
+            results_by_id[spec.episode_id] = result
+            print(f"[parallel] done {spec.episode_id}")
+
+    order = {spec.episode_id: index for index, spec in enumerate(specs)}
+    return sorted(
+        results_by_id.values(),
+        key=lambda result: order[result.spec.episode_id],
+    )
 
 
 def rollout_split(

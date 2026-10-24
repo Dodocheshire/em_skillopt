@@ -100,16 +100,18 @@ def _system_prompt(
     actions = list(getattr(env, "language_skill_set", []) or [])
     action_text = _action_text(actions)
     raw_examples = _examples(env_name, eval_set, n_shots, observation)
-    example_text = "\n\n".join(
-        (
-            (
-                f"## Task Execution Example{'  ' if planner_step > 0 else ' '}{index}: \n {example}"
-            )
-            if env_name == "eb-nav"
-            else example
+    if env_name in {"eb-nav", "eb-alf", "eb-hab"}:
+        example_text = "\n\n".join(
+            f"## Task Execution Example{'  ' if planner_step > 0 else ' '}{index}: \n {example}"
+            for index, example in enumerate(raw_examples)
         )
-        for index, example in enumerate(raw_examples)
-    )
+    elif env_name == "eb-man":
+        example_text = "\n".join(
+            f"Example {index}: \n{example}"
+            for index, example in enumerate(raw_examples)
+        )
+    else:
+        example_text = "\n\n".join(raw_examples)
 
     if env_name == "eb-nav":
         from embodiedbench.evaluator.config.system_prompts import (
@@ -186,6 +188,98 @@ def _nav_action_name(actions: Sequence[Any], action: Any) -> str:
     return str(action)
 
 
+def _vlm_user_builder(
+    actions: Sequence[Any],
+    language_only: bool,
+):
+    """Match EmbodiedBench ``VLMPlanner.process_prompt`` for ALF/HAB."""
+
+    def build_vlm_user(
+        spec: EpisodeSpec,
+        observation: Observation,
+        history: Sequence[TrajectoryStep],
+        planner_step: int,
+    ) -> str:
+        instruction = (observation.text.strip() or spec.instruction).rstrip(".")
+        prompt = f"## Now the human instruction is: {instruction}."
+        if language_only:
+            prompt += (
+                " You are supposed to output in json. You need to output your "
+                "reasoning steps and plan. At the end, output the action id "
+                f"(0 ~ {len(actions) - 1}) from the available actions to excute."
+            )
+        else:
+            prompt += (
+                " You are supposed to output in json. You need to describe "
+                "current visual state from the image, output your reasoning "
+                "steps and plan. At the end, output the action id "
+                f"(0 ~ {len(actions) - 1}) from the available actions to excute."
+            )
+
+        if not history:
+            return prompt
+
+        prompt += "\n\n The action history:"
+        for index, step in enumerate(history):
+            name = (
+                str(actions[step.action])
+                if isinstance(step.action, int) and 0 <= step.action < len(actions)
+                else str(step.action)
+            )
+            prompt += "\nStep {}, action id {}, {}, env feedback: {}".format(
+                index, step.action, name, step.feedback
+            )
+
+        if language_only:
+            prompt += (
+                f"\n\n Considering the above interaction history, to achieve the "
+                f"human instruction: '{instruction}', you are supposed to output "
+                "in json. You need to summarize interaction history and environment "
+                "feedback and reason why the last action or plan failed and did not "
+                "finish the task, output your new plan to achieve the goal from "
+                "current state. At the end, output the executable plan with action "
+                f"ids(0 ~ {len(actions) - 1}) from the available actions."
+            )
+        else:
+            prompt += (
+                f"\n\n Considering the above interaction history and the current "
+                f"image state, to achieve the human instruction: '{instruction}', "
+                "you are supposed to output in json. You need to describe current "
+                "visual state from the image, summarize interaction history and "
+                "environment feedback and reason why the last action or plan failed "
+                "and did not finish the task, output your new plan to achieve the "
+                "goal from current state. At the end, output the excutable plan "
+                f"with action ids(0 ~ {len(actions) - 1}) from the available actions."
+            )
+        return prompt
+
+    return build_vlm_user
+
+
+def _man_user_builder(actions: Sequence[Any]):
+    """Match EmbodiedBench ``ManipPlanner.process_prompt`` task section."""
+
+    def build_man_user(
+        spec: EpisodeSpec,
+        observation: Observation,
+        history: Sequence[TrajectoryStep],
+        planner_step: int,
+    ) -> str:
+        instruction = (observation.text.strip() or spec.instruction).rstrip(".")
+        coords = observation.metadata.get("object_coords", "")
+        prompt = (
+            "\n## Now you are supposed to follow the above examples to generate "
+            "a sequence of discrete gripper actions that completes the below human "
+            f"instruction. \nHuman Instruction: {instruction}.\nInput: {coords}\n"
+            "Output gripper actions: "
+        )
+        for step in history:
+            prompt += f"{step.action}, "
+        return prompt
+
+    return build_man_user
+
+
 def _make_user_builder(
     env_name: str,
     language_only: bool,
@@ -228,6 +322,12 @@ def _make_user_builder(
             return "\n".join(parts)
 
         return build_nav_user
+
+    if env_name in {"eb-alf", "eb-hab"}:
+        return _vlm_user_builder(actions, language_only)
+
+    if env_name == "eb-man":
+        return _man_user_builder(actions)
 
     def build_user(
         spec: EpisodeSpec,

@@ -7,10 +7,12 @@ small minibatches, then update -> gate is run once per rollout batch.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import random
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from ..backends.qwen_target import QwenTargetClient
@@ -40,6 +42,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--rollout-batch-size", type=int, default=8)
     parser.add_argument("--reflection-minibatch-size", type=int, default=8)
+    parser.add_argument(
+        "--reflection-workers",
+        type=int,
+        default=0,
+        help="parallel reflection calls; 0 means number of minibatches",
+    )
+    parser.add_argument(
+        "--parallel-workers",
+        type=int,
+        default=0,
+        help="episode-level workers; 0 means use rollout batch size",
+    )
     parser.add_argument("--train-limit", type=int, default=0)
     parser.add_argument("--val-limit", type=int, default=0)
     parser.add_argument("--max-steps", type=int, default=0)
@@ -85,8 +99,11 @@ def _make_batches(specs, batch_size: int, rng: random.Random):
 
 
 def _make_runner_factory(args, out_dir: Path, image_root: Path, client):
+    counter = itertools.count()
+
     def make_runner(capability: str) -> EpisodeRunner:
-        images = image_root / capability
+        # Parallel workers must not share image filenames.
+        images = image_root / capability / f"runner_{next(counter):03d}"
         env = build_env(
             args.env,
             capability,
@@ -153,6 +170,7 @@ def main() -> None:
     if not store.current_path.exists():
         store.save("", version=0, promote_best=True)
     current = store.load_current()
+    current_val_summary = None
 
     step = 0
     try:
@@ -188,32 +206,55 @@ def main() -> None:
                     client,
                 )
 
+                workers = args.parallel_workers or len(batch_specs)
                 train_results = rollout_specs(
                     batch_specs,
                     current.content or None,
                     out_dir=step_dir / "rollout",
                     runner_factory=factory,
-                    config=RolloutConfig(resume=False, verbose=True),
+                    config=RolloutConfig(
+                        resume=False,
+                        verbose=True,
+                        workers=workers,
+                    ),
                 )
                 if not train_results:
                     print("[train] no rollout results; skip update")
                     continue
 
                 print(f"[train] step {step} | reflect")
-                patches = []
                 mb_size = args.reflection_minibatch_size
-                for mb_index, mb in enumerate(
-                    _chunks(train_results, mb_size), start=1
-                ):
-                    patches.extend(
-                        reflect_episodes(
-                            mb,
-                            current.content or None,
-                            llm=client,
-                            out_dir=step_dir / "reflect" / f"mb_{mb_index:02d}",
-                            config=ReflectConfig(),
-                        )
+                mb_chunks = list(_chunks(train_results, mb_size))
+                patches_by_index: dict[int, list[dict]] = {}
+
+                def reflect_one(mb_index: int, mb):
+                    return mb_index, reflect_episodes(
+                        mb,
+                        current.content or None,
+                        llm=client,
+                        out_dir=step_dir / "reflect" / f"mb_{mb_index:02d}",
+                        config=ReflectConfig(),
                     )
+
+                reflect_workers = min(
+                    args.reflection_workers or len(mb_chunks),
+                    len(mb_chunks),
+                )
+                with ThreadPoolExecutor(max_workers=reflect_workers) as pool:
+                    futures = [
+                        pool.submit(reflect_one, index, mb)
+                        for index, mb in enumerate(mb_chunks, start=1)
+                    ]
+                    for future in as_completed(futures):
+                        try:
+                            index, patch_list = future.result()
+                            patches_by_index[index] = patch_list
+                        except Exception as exc:
+                            print(f"[train] reflection failed: {exc!r}")
+
+                patches = []
+                for index in sorted(patches_by_index):
+                    patches.extend(patches_by_index[index])
 
                 print(f"[train] step {step} | aggregate + clip")
                 merged_patch = merge_patches(patches)
@@ -260,10 +301,13 @@ def main() -> None:
                         runner_factory=gate_factory,
                         out_dir=step_dir / "gate",
                         min_reward_delta=args.min_reward_delta,
+                        workers=args.parallel_workers or len(val_specs),
+                        current_summary=current_val_summary,
                     )
                     gate_dict = gate.to_dict()
                     if gate.accepted and update.content.strip():
                         current = store.save(update.content, promote_best=True)
+                        current_val_summary = gate.candidate
                         print(
                             f"[train] accepted step {step}, "
                             f"version {current.version}"
