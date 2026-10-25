@@ -2,7 +2,11 @@
 # Method B (JitRL logit-free EM adaptation) evaluation on official EM test.
 set -euo pipefail
 
-ROOT=/home/pengcheng/EM-Benchmark
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${EB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+ENV_FILE="${ENV_FILE:-$HOME/.config/em-skillopt/client.env}"
+if [[ ! -f "$ENV_FILE" && -f /home/pengcheng/SkillOpt/.env ]]; then ENV_FILE=/home/pengcheng/SkillOpt/.env; fi
+
 PROJECT="$ROOT/em_skillopt"
 PY="${PYTHON_BIN:-/opt/conda/envs/embench_nav/bin/python}"
 
@@ -19,7 +23,6 @@ export PYTHONUNBUFFERED=1
 export QWEN_CHAT_THINKING_MODE="${QWEN_CHAT_THINKING_MODE:-disabled}"
 export PYTHONPATH="$ROOT/EmbodiedBench:$PROJECT${PYTHONPATH:+:$PYTHONPATH}"
 
-ENV_FILE=/home/pengcheng/SkillOpt/.env
 if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1090

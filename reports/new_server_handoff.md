@@ -1,213 +1,170 @@
-# 新服务器 / 新 DSH Workspace 交接上下文
+# 新服务器 / 新 DSH Workspace 交接（给 Mac 本机 Agent）
 
-## 1. 新服务器
+## 0. 当前目标
 
-```text
-SSH:
-  ssh -i ~/.ssh/id_ed25519 delci@10.162.141.11
-
-已在 ~/.ssh/config 添加：
-  Host em-new
-      HostName 10.162.141.11
-      User delci
-      Port 22
-      IdentityFile ~/.ssh/id_ed25519
-
-  Host em-new-ts        # Tailscale fallback
-      HostName 100.109.42.17
-      User delci
-      Port 22
-      IdentityFile ~/.ssh/id_ed25519
-```
-
-预期工作目录：
+在新服务器 `/home/delci/EM-Benchmark` 上继续：
 
 ```text
-/home/delci/EM-Benchmark
+baseline
+Method A = SkillOpt learnable skill
+Method B = JitRL-style test-time memory / advantage
 ```
 
-用户说环境基本安装好了，并要求先阅读：
+target 和 optimizer 都只用：
 
 ```text
-/home/delci/EM-Benchmark/README_WSL.md
+qwen3.8-27b
 ```
 
-当前从这台 Mac 访问：
-
-```text
-10.162.141.11:22   timeout
-100.109.42.17:22   timeout
-```
-
-即新服务器目前从本机不可达（WSL/Tailscale/Windows host 可能未启动或网络不同）。等服务器在线后，先读 README_WSL.md，再继续下面的部署/实验。
+当前不在新服务器上启动大规模 baseline；先 smoke，再跑单 worker 的 nav probe。
 
 ---
 
-## 2. 当前代码版本
+## 1. 新服务器访问
 
-```text
-em_skillopt:  https://github.com/Dodocheshire/em_skillopt.git
-              8d26386 Add JitRL Method B and simplify training splits
+Mac 本机 SSH 配置应包含：
 
-EB-Benchmark: https://github.com/Dodocheshire/EB-Benchmark.git
-              93e53e2
+```sshconfig
+Host em-new
+    HostName 10.162.141.11
+    User delci
+    Port 22
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
+    ConnectTimeout 20
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
 ```
 
-新服务器 clone 后应检查：
-
-```bash
-cd /home/delci/EM-Benchmark
-git -C em_skillopt log -1 --oneline
-git -C EmbodiedBench log -1 --oneline
-```
-
----
-
-## 3. 项目目标
-
-把 SkillOpt / JitRL 适配到 EM-Benchmark，同时保持 EM 原始 harness。
-
-方法：
-
-```text
-baseline:   不注入 task skill
-Method A:   SkillOpt learnable skill
-Method B:   JitRL-style test-time memory / advantage
-target/optimizer 均使用 qwen3.8-27b
-```
-
-当前评测协议：
-
-```text
-nav 训练/验证：所有 nav episode 合并，随机 85/15
-  train 255
-  val 45
-最终：官方 EM test（baseline 与 Method A best skill 都在官方 test 上评）
-```
-
-注意：简单随机 split 会跨 scene 泄漏，但用于同一套方法比较；官方 test 作为最终指标。
-
----
-
-## 4. 旧服务器当前实验状态
-
-旧服务器：
-
-```text
-Host: ZJU-molink
-/home/pengcheng/EM-Benchmark/em_skillopt
-```
-
-当前 probe：
-
-```text
-tmux: em-train-probe
-OUT: runs/method_a/eb-nav_maxedits1_probe_w1
-env: eb-nav
-epochs: 1
-MAX_EDITS: 1
-MAX_TRAIN_STEPS: 10
-episode workers: 1
-proxy: direct Qwen
-```
-
-已完成的 3 个 step：
-
-```text
-step 1: reject
-  current 37.8% -> candidate 35.6%
-
-step 2: accept_new_best
-  current 37.8% -> candidate 46.7%
-  best_step = 2
-  best skill = 444 chars
-
-step 3: reject
-  best 仍为 step 2
-```
-
-当前 step 4 正在跑；没有 Unity/Thor/API 错误。
-
-这个结果说明：
-
-```text
-MAX_EDITS=1 能产生可接受 edit
-之前 3 条大段 append 全部 reject，主要是改动过大
-```
-
-但 step 2 接受的规则包含：
-
-```text
-If target is on a surface and within 1-2 steps but cannot move closer,
-consider the task complete.
-```
-
-这可能是 val 过拟合，后续要在官方 test 验证。
-
-旧的四环境队列 `em-train-all` 已停止；旧 full4 run 是 20 步全 reject，保留在：
-
-```text
-runs/method_a/full4_random85_direct/eb-nav
-```
-
----
-
-## 5. 新服务器需要做的事
-
-### 5.1 读取 WSL README
+验证：
 
 ```bash
 ssh em-new
-cd /home/delci/EM-Benchmark
-sed -n '1,260p' README_WSL.md
+hostname
+# cheshirecat
+whoami
+# delci
 ```
 
-重点确认：
+注意：Windows 侧用户态代理监听 22，转发到 WSL 内 sshd 的 2222。  
+**Mac 上不要直接连 2222**，用 `em-new`（22）即可。
 
-- conda 安装位置
-- 三个环境是否已建好
-- Xorg / DISPLAY
-- 数据集位置
-- 是否有 GPU / 容器外占用
-- 代码路径
+当前已能登录；仓库在：
 
-### 5.2 代码
-
-如果新服务器还没有 `em_skillopt`：
-
-```bash
-cd /home/delci/EM-Benchmark
-git clone https://github.com/Dodocheshire/em_skillopt.git em_skillopt
+```text
+/home/delci/EM-Benchmark/em_skillopt
 ```
 
-如果已有，更新：
+---
+
+## 2. 新服务器实际环境（已由 README_WSL.md 确认）
+
+```text
+Ubuntu 26.04.1 LTS, WSL2
+Miniforge: /home/delci/miniforge3
+/opt/conda -> /home/delci/miniforge3
+```
+
+三个 conda env，均为 Python 3.9.23：
+
+```text
+embench_nav:
+  ai2thor 5.0.0
+  torch 2.4.0+cpu
+  jsonschema 4.25.1
+
+embench:
+  ai2thor 2.1.0
+  habitat / habitat-sim 0.3.0
+  jsonschema 4.25.1
+
+embench_man:
+  PyRep + CoppeliaSim 4.1
+  ultralytics, open3d
+  jsonschema 4.25.1
+```
+
+显示/Vulkan：
+
+```text
+Xvfb :1 已运行
+Mesa Dozen Vulkan driver
+Vulkan device:
+  Microsoft Direct3D12 (NVIDIA GeForce RTX 4060 Laptop GPU)
+  driver Dozen
+```
+
+CloudRendering 和 nav smoke 已通过：
+
+```text
+success 1/1
+format_error 0
+elapsed 30.9s
+```
+
+AI2-THOR release：
+
+```text
+~/.ai2thor/releases/thor-CloudRendering-f082...
+~/.ai2thor/releases/thor-Linux64-f082...
+```
+
+Qwen 配置已存在：
+
+```text
+~/.config/em-skillopt/client.env
+```
+
+数据大致：
+
+```text
+ALFRED       ~539 MB
+Habitat      ~1.5 GB
+Manipulation ~1.9 GB
+AI2-THOR     ~2.1 GB
+```
+
+---
+
+## 3. 代码版本和路径
+
+当前仓库：
+
+```text
+https://github.com/Dodocheshire/em_skillopt.git
+```
+
+旧服务器已有 commit：
+
+```text
+8d26386 Add JitRL Method B and simplify training splits
+a47a674 Add new server handoff notes
+```
+
+本次又加入了脚本路径便携化（`SCRIPT_DIR` / `EB_ROOT` / `ENV_FILE`）和本文件。  
+新服务器 Agent 第一步应：
 
 ```bash
 cd /home/delci/EM-Benchmark/em_skillopt
 git pull --ff-only
+git log -1 --oneline
 ```
 
-### 5.3 路径修改
+如果 GitHub 访问不了，使用旧服务器或本机已有 checkout 同步。
 
-脚本里默认仍是：
+EB 仓库：
 
 ```text
-/home/pengcheng/EM-Benchmark
-/home/pengcheng/SkillOpt/.env
+https://github.com/Dodocheshire/EB-Benchmark.git
+当前参考: 93e53e2
 ```
 
-新服务器是 `delci`，需要修改：
+---
 
-```text
-scripts/run_baseline.sh
-scripts/run_skillopt.sh
-scripts/run_train_all.sh
-scripts/run_jitrl.sh
-```
+## 4. 运行前设置
 
-或设置环境变量/建立同路径。
-
-必须设置：
+脚本现在会自动从自身位置推导 `ROOT`：
 
 ```bash
 export ROOT=/home/delci/EM-Benchmark
@@ -215,103 +172,226 @@ export PYTHONPATH="$ROOT/EmbodiedBench:$ROOT/em_skillopt"
 export DISPLAY=:1
 ```
 
-Qwen API：
+Qwen 配置从：
+
+```text
+~/.config/em-skillopt/client.env
+```
+
+读取。不要提交 API key。
+
+如果代理正常，脚本默认 `PROXY=http://127.0.0.1:7890`；  
+如果代理异常，设置：
 
 ```bash
-export QWEN_CHAT_BASE_URL="..."
-export QWEN_CHAT_API_KEY="..."
-export QWEN_CHAT_MODEL="qwen3.8-27b"
-export QWEN_CHAT_THINKING_MODE=disabled
+PROXY=
 ```
 
-不要把旧服务器的 key 写进 git。
+或显式传空 `--proxy ""`。
 
-### 5.4 Split
+---
 
-Git 跟踪：
+## 5. 第一次在新服务器上做的事
 
-```text
-splits/eb-nav/
-```
-
-以下被忽略，需要从旧服务器 rsync 或重新生成：
-
-```text
-splits/eb-alf/
-splits/eb-hab/
-splits/eb-man/
-```
-
-旧服务器路径：
-
-```text
-/home/pengcheng/EM-Benchmark/em_skillopt/splits/
-```
-
-### 5.5 数据集
-
-如果新服务器还没有完整数据：
+### 5.1 读 README 和状态
 
 ```bash
-cd /home/delci/EM-Benchmark/EmbodiedBench
-bash scripts/download_datasets.sh --dataset all
+ssh em-new
+cd /home/delci/EM-Benchmark
+
+sed -n '1,260p' README_WSL.md
+sed -n '1,220p' em_skillopt/reports/server_setup.md
 ```
 
-Navigation JSON 随仓库提供；AI2-THOR 首次启动会下载到 `~/.ai2thor`。
-
-已知 ai2thor 2.1.0 的 `prune_releases()` 可能删除 nav 的 CloudRendering；参见：
-
-```text
-EM-Benchmark/em_skillopt/reports/server_setup.md
-```
-
-### 5.6 快速验证
+### 5.2 更新代码
 
 ```bash
-xdpyinfo -display :1
-
 cd /home/delci/EM-Benchmark/em_skillopt
+git pull --ff-only
+git status --short
+```
+
+### 5.3 确认显示
+
+```bash
+xdpyinfo -display :1 >/dev/null && echo DISPLAY_OK
+vulkaninfo --summary | grep -E 'deviceName|driverName'
+```
+
+Xvfb 已由 systemd 启动；如果不在：
+
+```bash
+sudo systemctl status xvfb.service
+```
+
+不要随意改用 `start_headless.sh`；WSL 没有 NVIDIA PCI 设备，脚本会报 `no nvidia cards found`。
+
+### 5.4 单条 nav smoke
+
+```bash
+source ~/.config/em-skillopt/client.env
+export ROOT=/home/delci/EM-Benchmark
+export PYTHONPATH="$ROOT/EmbodiedBench:$ROOT/em_skillopt"
+export DISPLAY=:1
+
+cd "$ROOT/em_skillopt"
+
+/opt/conda/envs/embench_nav/bin/python -m em_skillopt.cli.evaluate \
+  --env eb-nav \
+  --method baseline \
+  --eval-set base \
+  --split test \
+  --limit 1 \
+  --parallel-workers 1 \
+  --max-tokens 8192 \
+  --proxy "" \
+  --out "$ROOT/runs/smoke_nav_delci"
+```
+
+预期参考：
+
+```text
+success_rate ≈ 1.0
+format_error_rate = 0
+```
+
+### 5.5 单元测试
+
+```bash
+cd "$ROOT/em_skillopt"
 PYTHONPATH="$ROOT/EmbodiedBench:$ROOT/em_skillopt" \
-  /path/to/embench_nav/bin/python -m em_skillopt.cli.evaluate \
-  --env eb-nav --method baseline --eval-set base --split test \
-  --limit 1 --parallel-workers 1 --max-tokens 8192 \
-  --proxy "" --out /tmp/em_smoke_nav
+  /opt/conda/envs/embench_nav/bin/python -m unittest discover -s tests -q
 ```
 
 ---
 
-## 6. 建议的新实验顺序
+## 6. 当前实验上下文
 
-1. 新服务器单条 nav smoke；
-2. 跑 `MAX_EDITS=1` 的 nav probe（1 epoch，10 step）；
-3. 如果 accept，继续官方 nav test；
-4. 再跑 Method B JitRL；
-5. 最后再回到四环境 baseline / Method A。
+旧服务器上的 Method A probe：
 
-不要在 GPU 已被容器外用户占用时提高 worker 数。
+```text
+runs/method_a/eb-nav_maxedits1_probe_w1
+env: eb-nav
+MAX_EDITS=1
+MAX_TRAIN_STEPS=10
+episode workers=1
+```
+
+旧服务器已完成：
+
+```text
+step 1: reject
+  current 37.8% -> candidate 35.6%
+
+step 2: accept_new_best
+  current 37.8% -> candidate 46.7%
+  best_step=2
+  best skill=444 chars
+
+step 3: reject
+step 4: running when this handoff was written
+```
+
+结论：
+
+```text
+MAX_EDITS=1 能产生非空 best
+之前 3 条大段 append 全部 reject，原因是改动过大
+```
+
+注意：step 2 接受的规则包含：
+
+```text
+If target is on a surface and within 1-2 steps but cannot move closer,
+consider the task complete.
+```
+
+这可能在官方 test 上过拟合，必须用官方 test 验证。
+
+Method B：
+
+```text
+em_skillopt/jitrl/memory.py
+em_skillopt/jitrl/policy.py
+em_skillopt/cli/evaluate.py --method method_b
+scripts/run_jitrl.sh
+```
+
+Method B 是 **logit-free** 的 plan-level 近似；官方 JitRL 需要 token logprobs/logits，Qwen API 不提供。
 
 ---
 
-## 7. 重要已知问题
+## 7. 新服务器上的建议实验顺序
 
-- 旧服务器 GPU 有容器外用户，约 30 GB 被占；不能 `nvidia-smi --gpu-reset`，不要 reboot。
-- 单 worker 很慢：一个 step 包含 16 rollout + 45 current + 45 candidate val。
-- 旧 `embench` ai2thor 2.1.0 会误删 CloudRendering；需要 patch 或独立 cache。
-- `run_baseline.sh` 的 `MAN_PARALLEL_WORKERS=1` 是必须的；CoppeliaSim 不能多线程。
-- Xorg 需要手动启动；不要在没有确认时重启整个显示服务。
-- Method B 是 logit-free 的 plan-level 近似，不是官方 JitRL 的 token-logit 复刻。
-- `reports/method_a_reject_report.md` 记录了 20 步 3-edit 全 reject 的分析。
-- `reports/jitrl_method_b_design.md` 记录了 Method B 与官方的差异。
+### A. 先跑 nav Method A 单 edit probe
+
+```bash
+cd /home/delci/EM-Benchmark/em_skillopt
+
+ENV=eb-nav \
+PYTHON_BIN=/opt/conda/envs/embench_nav/bin/python \
+OUT=runs/method_a/eb-nav_maxedits1_probe \
+SPLIT_DIR=splits/eb-nav \
+TRAIN_LIMIT=0 VAL_LIMIT=0 EPOCHS=1 \
+ROLLOUT_BATCH_SIZE=16 REFLECTION_MINIBATCH_SIZE=4 \
+PARALLEL_WORKERS=1 MAX_EDITS=1 MAX_TRAIN_STEPS=10 \
+GATE_METRIC=hard PROXY= \
+bash scripts/run_skillopt.sh
+```
+
+单 worker 在 nav 上一个 step 很慢（含 45 条 current + 45 条 candidate val）。  
+如果确认 GPU/CloudRendering 稳定，可再考虑提高到 2；不要直接 8。
+
+### B. 如果出现 accept
+
+先不要直接扩到其他 env；用官方 nav test 验证 accepted skill：
+
+```bash
+for EVAL_SET in base common_sense complex_instruction visual_appearance long_horizon; do
+  /opt/conda/envs/embench_nav/bin/python -m em_skillopt.cli.evaluate \
+    --env eb-nav \
+    --method method_a \
+    --skill-file runs/method_a/eb-nav_maxedits1_probe/skill/best.md \
+    --eval-set "$EVAL_SET" \
+    --split test \
+    --parallel-workers 1 \
+    --max-tokens 8192 \
+    --proxy "" \
+    --out "artifacts/method_a_official/$EVAL_SET"
+done
+```
+
+### C. Method B
+
+```bash
+ENV=eb-nav \
+EVAL_SETS="base common_sense complex_instruction visual_appearance long_horizon" \
+WORKERS=1 \
+bash scripts/run_jitrl.sh
+```
+
+先做 base 20 条对照，再扩全量。
 
 ---
 
-## 8. 建议给新 DSH 会话的初始指令
+## 8. 注意事项
+
+- 不要在新服务器上启动大型 baseline；先 smoke。
+- 不要把 API key 写入 git。
+- 不要同时跑 nav + alf/hab/man 的大量 worker；WSL/Dozen 比裸机更容易受并发影响。
+- `embench` 的旧 ai2thor 2.1.0 可能会删除 CloudRendering；如果 nav 反复下载，检查 `prune_releases()`，参见 `reports/server_setup.md`。
+- `run_baseline.sh` 默认 8192 tokens；man 必须 `MAN_PARALLEL_WORKERS=1`。
+- 旧服务器 probe 仍在运行；新服务器不要重复启动同一输出目录。
+
+---
+
+## 9. 新 DSH 会话第一条消息建议
 
 ```text
 工作目录：/home/delci/EM-Benchmark/em_skillopt
-代码版本：8d26386
+代码版本：git pull 后最新 main
 先阅读 README_WSL.md 和 reports/server_setup.md。
-不要启动 baseline/Method A 大规模训练；先做单条 nav smoke。
-所有模型只用 qwen3.8-27b；不要提交 API key。
-当前重点是验证 MAX_EDITS=1 的 Method A probe，以及 JitRL Method B。
+不要启动四环境大规模训练；先做单条 nav smoke。
+模型只用 qwen3.8-27b，不要提交 API key。
+接着验证 Method A 的 MAX_EDITS=1 单 worker probe，再考虑 Method B。
 ```

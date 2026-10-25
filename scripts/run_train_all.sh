@@ -2,7 +2,12 @@
 # Train Method A sequentially on all four EM environments.
 set -euo pipefail
 
-ROOT=/home/pengcheng/EM-Benchmark
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${EB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+ENV_FILE="${ENV_FILE:-$HOME/.config/em-skillopt/client.env}"
+export ENV_FILE
+if [[ ! -f "$ENV_FILE" && -f /home/pengcheng/SkillOpt/.env ]]; then ENV_FILE=/home/pengcheng/SkillOpt/.env; fi
+
 PROJECT="$ROOT/em_skillopt"
 cd "$PROJECT"
 export PROXY="${PROXY-}"

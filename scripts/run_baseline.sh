@@ -12,7 +12,11 @@
 #   MODEL, PROXY, LIMIT, MAX_STEPS, MAX_PLANNER_STEPS, MAX_TOKENS, OUT_ROOT
 set -uo pipefail
 
-ROOT=/home/pengcheng/EM-Benchmark
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${EB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+ENV_FILE="${ENV_FILE:-$HOME/.config/em-skillopt/client.env}"
+if [[ ! -f "$ENV_FILE" && -f /home/pengcheng/SkillOpt/.env ]]; then ENV_FILE=/home/pengcheng/SkillOpt/.env; fi
+
 EMBENCH="$ROOT/EmbodiedBench"
 PROJECT="$ROOT/em_skillopt"
 CONDA_ROOT=/opt/conda/envs
@@ -42,7 +46,6 @@ export LD_LIBRARY_PATH="$COPPELIASIM_ROOT:${LD_LIBRARY_PATH:-}"
 export QT_QPA_PLATFORM_PLUGIN_PATH="$COPPELIASIM_ROOT"
 export EB_DETECTION_DEVICE="${EB_DETECTION_DEVICE:-cpu}"
 
-ENV_FILE=/home/pengcheng/SkillOpt/.env
 if [[ -f "$ENV_FILE" ]]; then
     set -a
     # shellcheck disable=SC1090

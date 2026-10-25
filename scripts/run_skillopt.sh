@@ -2,7 +2,11 @@
 # Minimal Method A entry point.  Defaults are a small smoke run.
 set -euo pipefail
 
-ROOT=/home/pengcheng/EM-Benchmark
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${EB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+ENV_FILE="${ENV_FILE:-$HOME/.config/em-skillopt/client.env}"
+if [[ ! -f "$ENV_FILE" && -f /home/pengcheng/SkillOpt/.env ]]; then ENV_FILE=/home/pengcheng/SkillOpt/.env; fi
+
 PROJECT="$ROOT/em_skillopt"
 EMBENCH="$ROOT/EmbodiedBench"
 PY="${PYTHON_BIN:-/opt/conda/envs/embench_nav/bin/python}"
@@ -24,7 +28,6 @@ SPLIT_DIR="${SPLIT_DIR:-$PROJECT/splits/$ENV}"
 GATE_METRIC="${GATE_METRIC:-hard}"
 GATE_MIXED_WEIGHT="${GATE_MIXED_WEIGHT:-0.5}"
 
-ENV_FILE=/home/pengcheng/SkillOpt/.env
 if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1090
