@@ -25,7 +25,7 @@ qwen3.8-27b
 Mac 本机 SSH 配置应包含：
 
 ```sshconfig
-Host em-new
+Host delci
     HostName 10.162.141.11
     User delci
     Port 22
@@ -40,7 +40,7 @@ Host em-new
 验证：
 
 ```bash
-ssh em-new
+ssh delci
 hostname
 # cheshirecat
 whoami
@@ -48,7 +48,7 @@ whoami
 ```
 
 注意：Windows 侧用户态代理监听 22，转发到 WSL 内 sshd 的 2222。  
-**Mac 上不要直接连 2222**，用 `em-new`（22）即可。
+**Mac 上不要直接连 2222**，用 `delci`（22）即可。
 
 当前已能登录；仓库在：
 
@@ -196,7 +196,7 @@ PROXY=
 ### 5.1 读 README 和状态
 
 ```bash
-ssh em-new
+ssh delci
 cd /home/delci/EM-Benchmark
 
 sed -n '1,260p' README_WSL.md
