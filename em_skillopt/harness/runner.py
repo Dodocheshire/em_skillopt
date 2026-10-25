@@ -17,6 +17,7 @@ from ..core.protocols import (
     ContextBuilder,
     EnvironmentAdapter,
     LLMClient,
+    PlanAdjuster,
     PlanParser,
 )
 from ..core.types import (
@@ -48,11 +49,13 @@ class EpisodeRunner:
         parser: PlanParser,
         llm: LLMClient,
         config: RunnerConfig | None = None,
+        plan_adjuster: PlanAdjuster | None = None,
     ) -> None:
         self.env = env
         self.context = context
         self.parser = parser
         self.llm = llm
+        self.plan_adjuster = plan_adjuster
         self.config = config or RunnerConfig()
         if not self.config.response_format:
             raise ValueError(
@@ -132,6 +135,19 @@ class EpisodeRunner:
                     self.env.action_space,
                 )
                 plan.raw = response.text
+                if (
+                    self.plan_adjuster is not None
+                    and plan.error is None
+                    and plan.actions
+                ):
+                    plan = self.plan_adjuster.adjust(
+                        plan,
+                        spec,
+                        observation,
+                        history,
+                        self.env.action_space,
+                        planner_step,
+                    )
             plans.append(
                 PlanRecord(
                     planner_step=planner_step,
@@ -152,6 +168,7 @@ class EpisodeRunner:
                 if len(history) >= max_steps:
                     break
 
+                state_text = self._state_text(spec, observation, history)
                 step = self.env.step(action)
                 observation = step.observation
                 history.append(
@@ -164,6 +181,7 @@ class EpisodeRunner:
                         feedback=step.feedback,
                         done=step.done,
                         success=step.success,
+                        state_text=state_text,
                     )
                 )
 
@@ -203,7 +221,7 @@ class EpisodeRunner:
             else:
                 failure_reason = "not_success"
 
-        return EpisodeResult(
+        result = EpisodeResult(
             spec=spec,
             success=success,
             reward=reward,
@@ -219,6 +237,25 @@ class EpisodeRunner:
             trajectory=history,
             token_usage=token_usage,
         )
+        if self.plan_adjuster is not None:
+            observe = getattr(self.plan_adjuster, "observe", None)
+            if callable(observe):
+                observe(result)
+        return result
+
+    @staticmethod
+    def _state_text(
+        spec: EpisodeSpec,
+        observation: Any,
+        history: list[TrajectoryStep],
+    ) -> str:
+        parts = [spec.instruction, getattr(observation, "text", "")]
+        for step in history[-6:]:
+            parts.append(
+                f"{step.env_step}: action={step.action!r} "
+                f"valid={step.action_valid} feedback={step.feedback}"
+            )
+        return "\n".join(str(part) for part in parts if str(part).strip())
 
 
 __all__ = [

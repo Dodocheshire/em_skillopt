@@ -97,9 +97,26 @@ class PlanParser(Protocol):
     ) -> ActionPlan:
         ...
 
+@runtime_checkable
+class PlanAdjuster(Protocol):
+    """Optional test-time policy adapter (Method B / JitRL)."""
+
+    def adjust(
+        self,
+        plan: ActionPlan,
+        spec: EpisodeSpec,
+        observation: Observation,
+        history: Sequence[TrajectoryStep],
+        action_space: Sequence[ActionValue],
+        planner_step: int,
+    ) -> ActionPlan:
+        ...
+
+
 __all__ = [
     "ContextBuilder",
     "EnvironmentAdapter",
     "LLMClient",
     "PlanParser",
+    "PlanAdjuster",
 ]

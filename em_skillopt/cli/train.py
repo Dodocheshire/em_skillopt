@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--proxy", default="http://127.0.0.1:7890")
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--rollout-batch-size", type=int, default=8)
-    parser.add_argument("--reflection-minibatch-size", type=int, default=8)
+    parser.add_argument("--reflection-minibatch-size", type=int, default=4)
     parser.add_argument(
         "--reflection-workers",
         type=int,
@@ -53,6 +53,18 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="episode-level workers; 0 means use rollout batch size",
+    )
+    parser.add_argument(
+        "--skip-steps",
+        type=int,
+        default=0,
+        help="skip the first N rollout steps (resume mid-epoch)",
+    )
+    parser.add_argument(
+        "--max-train-steps",
+        type=int,
+        default=0,
+        help="stop after this many total train steps (0 = no limit)",
     )
     parser.add_argument("--train-limit", type=int, default=0)
     parser.add_argument("--val-limit", type=int, default=0)
@@ -69,7 +81,6 @@ def parse_args() -> argparse.Namespace:
         choices=["hard", "soft", "mixed"],
     )
     parser.add_argument("--gate-mixed-weight", type=float, default=0.5)
-    parser.add_argument("--test-limit", type=int, default=0)
     parser.add_argument("--n-shots", type=int, default=-1)
     parser.add_argument("--no-detection", action="store_true")
     parser.add_argument("--language-only", action="store_true")
@@ -210,7 +221,16 @@ def main() -> None:
             )
 
             for batch_specs in batches:
+                if args.max_train_steps and step >= args.max_train_steps:
+                    print(
+                        f"[train] reached max train steps "
+                        f"({args.max_train_steps}); stop"
+                    )
+                    return
                 step += 1
+                if step <= args.skip_steps:
+                    print(f"[train] skip completed step {step}")
+                    continue
                 step_dir = out / f"step_{step:04d}"
                 step_dir.mkdir(parents=True, exist_ok=True)
                 print("\n" + "-" * 72)
@@ -426,34 +446,6 @@ def main() -> None:
                 f"rejected_edits={epoch_rejected_edits}"
             )
             print("=" * 72)
-
-        test_specs = _slice(list(bundle.test), args.test_limit)
-        if test_specs:
-            print(
-                f"\n[train] final best-skill test | "
-                f"episodes={len(test_specs)}"
-            )
-            best = store.load_best()
-            test_dir = out / "test_best"
-            test_factory = _make_runner_factory(
-                args,
-                test_dir,
-                test_dir / "images",
-                client,
-            )
-            rollout_specs(
-                test_specs,
-                best.content or None,
-                out_dir=test_dir,
-                runner_factory=test_factory,
-                config=RolloutConfig(
-                    resume=False,
-                    verbose=True,
-                    workers=args.parallel_workers or len(test_specs),
-                ),
-            )
-        else:
-            print("[train] no test split; skip final test")
 
         print(f"[train] done. best skill: {store.best_path}")
     finally:

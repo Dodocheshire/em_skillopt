@@ -1,20 +1,13 @@
-"""Group-aware train/val/test splits for Method A.
+"""Simple episode-level random train/val split for Method A.
 
-EM-Benchmark has no official train split, so Method A must create development
-splits without leaking the official test episodes.  Splits are made by
-*group*, not by individual episode:
-
-- EB-Navigation: scene
-- EB-ALFRED: task family
-- EB-Habitat: scene
-- EB-Manipulation: task variation
-
-All episodes in one group stay in exactly one split.  The output layout is::
+The official EM test split is kept untouched and is used for final evaluation.
+Method A only needs a development train/val split; there is no dev test split.
+Episodes are shuffled and split by count, without grouping by scene or
+capability.  The layout is::
 
     <out>/
     ├── train/items.json
     ├── val/items.json
-    ├── test/items.json
     └── split_manifest.json
 """
 from __future__ import annotations
@@ -22,190 +15,90 @@ from __future__ import annotations
 import argparse
 import json
 import random
-from collections import defaultdict
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Sequence
 
 from ..core.types import EpisodeSpec
 
-SPLIT_NAMES = ("train", "val", "test")
+SPLIT_NAMES = ("train", "val")
 
 
 @dataclass
 class SplitBundle:
     train: list[EpisodeSpec] = field(default_factory=list)
     val: list[EpisodeSpec] = field(default_factory=list)
-    test: list[EpisodeSpec] = field(default_factory=list)
     manifest: dict[str, Any] = field(default_factory=dict)
-
-
-def _norm_ratios(ratios: Sequence[float]) -> tuple[float, float, float]:
-    if len(ratios) != 3:
-        raise ValueError("ratios must contain train, val, test")
-    values = [float(item) for item in ratios]
-    if any(item <= 0 for item in values):
-        raise ValueError("all split ratios must be positive")
-    total = sum(values)
-    return tuple(item / total for item in values)  # type: ignore[return-value]
-
-
-def _fallback_group_key(spec: EpisodeSpec) -> str:
-    return f"{spec.env_name}:{spec.capability}"
-
-
-def group_key(spec: EpisodeSpec) -> str:
-    """Return the anti-leakage group for one episode.
-    eval_set 是能力维度划分的子集，比如 base、common_sense(对应EpisodeSpec的capability)
-    group 是这个数据集内部用来防泄漏的单位，比如 scene / task family
-    例如，FloorPlan1 这个 scene 是一个 group，整个 group 只能进一个 split
-    """
-
-    meta = spec.metadata or {}
-
-    if spec.env_name == "eb-nav":
-        scene = meta.get("scene")
-        return f"scene:{scene}" if scene else _fallback_group_key(spec)
-
-    if spec.env_name == "eb-alf":
-        task = str(meta.get("task") or "")
-        family = task.split("/")[0] if task else ""
-        return f"task:{family}" if family else _fallback_group_key(spec)
-
-    if spec.env_name == "eb-hab":
-        scene = meta.get("scene") or meta.get("scene_id")
-        return f"scene:{scene}" if scene else _fallback_group_key(spec)
-
-    if spec.env_name == "eb-man":
-        variation = meta.get("task_variation")
-        return (
-            f"variation:{variation}"
-            if variation
-            else _fallback_group_key(spec)
-        )
-
-    return _fallback_group_key(spec)
-
-
-def _assign_groups(
-    groups: dict[str, list[EpisodeSpec]],
-    ratios: tuple[float, float, float],
-    rng: random.Random,
-) -> dict[str, str]:
-    """Assign whole groups to splits, balancing target episode counts."""
-
-    keys = list(groups)
-    rng.shuffle(keys)
-    # Largest first gives better count balance; random order breaks ties.
-    keys.sort(key=lambda key: len(groups[key]), reverse=True)
-
-    total = sum(len(items) for items in groups.values())
-    targets = [total * ratio for ratio in ratios]
-    counts = [0, 0, 0]
-    assignment: dict[str, str] = {}
-
-    # 遍历每个分组, 例如scene:FloorPlan1、scene:FloorPlan2
-    for key in keys:
-        size = len(groups[key])
-        # 在 train / val / test 里选一个 split：选差得最多的那个
-        split_index = max(
-            range(3),
-            key=lambda idx: (targets[idx] - counts[idx], -idx), # 平局时优先选前面的
-        )
-        assignment[key] = SPLIT_NAMES[split_index]
-        counts[split_index] += size
-
-    return assignment
 
 
 def build_splits(
     specs: Sequence[EpisodeSpec],
     *,
-    ratios: Sequence[float] = (0.7, 0.15, 0.15),
+    val_ratio: float = 0.15,
     seed: int = 42,
-    min_groups: int = 3,
-    group_key_fn: Callable[[EpisodeSpec], str] = group_key,
-    allow_mixed_eval_sets: bool = False,
 ) -> SplitBundle:
-    """Split specs by group into train/val/test.
+    """Shuffle episodes and make one train/val split.
 
-    Raises:
-        ValueError: if the input has too few groups to make three non-empty
-            splits without putting one group in multiple splits.
+    This deliberately does not group by scene or capability.  A fixed seed
+    makes the split reproducible.
     """
 
     if not specs:
         raise ValueError("cannot split an empty episode list")
+    if not 0.0 < val_ratio < 1.0:
+        raise ValueError(f"val_ratio must be in (0, 1), got {val_ratio}")
 
     env_names = {spec.env_name for spec in specs}
-    eval_sets = {spec.capability for spec in specs}
     if len(env_names) != 1:
         raise ValueError(
             "build_splits expects exactly one env_name; "
             f"got envs={sorted(env_names)}"
         )
-    if len(eval_sets) != 1 and not allow_mixed_eval_sets:
-        raise ValueError(
-            "build_splits expects one eval_set unless "
-            "allow_mixed_eval_sets=True; "
-            f"got eval_sets={sorted(eval_sets)}"
-        )
 
-    normalized = _norm_ratios(ratios)
-    groups: dict[str, list[EpisodeSpec]] = defaultdict(list)
-    for spec in specs:
-        groups[group_key_fn(spec)].append(spec)
+    shuffled = list(specs)
+    random.Random(seed).shuffle(shuffled)
 
-    if len(groups) < min_groups:
-        raise ValueError(
-            f"need at least {min_groups} groups for train/val/test, "
-            f"got {len(groups)}: {sorted(groups)}"
-        )
+    total = len(shuffled)
+    val_count = max(1, min(total - 1, round(total * val_ratio)))
+    val_items = shuffled[:val_count]
+    train_items = shuffled[val_count:]
 
-    rng = random.Random(seed)
-    assignment = _assign_groups(groups, normalized, rng)
+    for spec in train_items:
+        spec.split = "train"
+    for spec in val_items:
+        spec.split = "val"
 
-    bundle = SplitBundle()
-    for key, items in groups.items():
-        split = assignment[key]
-        for spec in items:
-            spec.split = split
-            getattr(bundle, split).append(spec)
+    train_items.sort(key=lambda spec: spec.index)
+    val_items.sort(key=lambda spec: spec.index)
 
-    for name in SPLIT_NAMES:
-        getattr(bundle, name).sort(key=lambda spec: spec.index)
-        if not getattr(bundle, name):
-            raise ValueError(
-                f"split {name!r} is empty; adjust ratios or provide more groups"
-            )
-
-    group_to_split = {
-        name: sorted(key for key, value in assignment.items() if value == name) # group key的list
-        for name in SPLIT_NAMES
-    }
-    bundle.manifest = {
-        "env_name": next(iter(env_names)),
-        "eval_set": (
-            next(iter(eval_sets)) if len(eval_sets) == 1 else "mixed"
-        ),
-        "eval_sets": sorted(eval_sets),
-        "seed": seed,
-        "ratios": dict(zip(SPLIT_NAMES, normalized)),
-        "counts": {
-            name: len(getattr(bundle, name)) for name in SPLIT_NAMES
+    eval_sets = sorted({spec.capability for spec in specs})
+    bundle = SplitBundle(
+        train=train_items,
+        val=val_items,
+        manifest={
+            "env_name": next(iter(env_names)),
+            "eval_sets": eval_sets,
+            "split_method": "episode_random",
+            "seed": seed,
+            "val_ratio": val_ratio,
+            "counts": {
+                "train": len(train_items),
+                "val": len(val_items),
+            },
+            "capability_counts": {
+                "train": dict(Counter(spec.capability for spec in train_items)),
+                "val": dict(Counter(spec.capability for spec in val_items)),
+            },
+            "created_at": datetime.now(timezone.utc).isoformat(),
         },
-        "group_counts": {
-            name: len(group_to_split[name]) for name in SPLIT_NAMES
-        },
-        "groups": group_to_split,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
+    )
     return bundle
 
 
 def save_splits(bundle: SplitBundle, out_dir: str | Path) -> Path:
-    """Write the standard split directory and manifest."""
+    """Write train/val item lists and the split manifest."""
 
     root = Path(out_dir)
     root.mkdir(parents=True, exist_ok=True)
@@ -242,54 +135,43 @@ def load_splits(root: str | Path) -> SplitBundle:
     return SplitBundle(
         train=load_items(root_path / "train" / "items.json"),
         val=load_items(root_path / "val" / "items.json"),
-        test=load_items(root_path / "test" / "items.json"),
         manifest=manifest,
     )
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Create grouped EM Method A splits from a specs JSON file"
+        description="Create a simple random EM Method A train/val split"
     )
-    parser.add_argument(
-        "--items",
-        required=True,
-        help="input JSON list of EpisodeSpec dicts",
-    )
-    parser.add_argument(
-        "--out",
-        required=True,
-        help="output split directory",
-    )
-    parser.add_argument("--ratios", default="0.7:0.15:0.15")
+    parser.add_argument("--items", required=True, help="input EpisodeSpec JSON list")
+    parser.add_argument("--out", required=True, help="output split directory")
+    parser.add_argument("--val-ratio", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
-    ratios = tuple(float(item) for item in args.ratios.split(":"))
     specs = load_items(args.items)
-    bundle = build_splits(specs, ratios=ratios, seed=args.seed)
+    bundle = build_splits(specs, val_ratio=args.val_ratio, seed=args.seed)
     root = save_splits(bundle, args.out)
     print(
         f"wrote {root}: "
         f"train={len(bundle.train)} "
         f"val={len(bundle.val)} "
-        f"test={len(bundle.test)}"
+        f"eval_sets={bundle.manifest['eval_sets']}"
     )
-
-
-if __name__ == "__main__":
-    main()
 
 
 __all__ = [
     "SPLIT_NAMES",
     "SplitBundle",
     "build_splits",
-    "group_key",
+    "save_splits",
     "load_items",
     "load_splits",
-    "save_splits",
 ]
+
+
+if __name__ == "__main__":
+    main()

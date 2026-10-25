@@ -121,6 +121,8 @@ class TrajectoryStep:
     feedback: str
     done: bool
     success: bool
+    # Text state at the time of this step, used by JitRL memory retrieval.
+    state_text: str = ""
 
 
 @dataclass

@@ -1,12 +1,8 @@
 """Evaluate baseline or a learned skill on EM.
 
-Two modes:
-
-1. Official single-capability mode: ``--eval-set base``
-2. Mixed-capability split mode: ``--split-dir splits/eb-nav --split-name test``
-
-In split mode, specs from several eval sets are grouped by capability and
-executed through parallel episode workers.
+Evaluate one official EM eval_set, for example ``--eval-set base``.  Method A
+uses only a train/val split for training; final scoring is always the official
+EM test set.
 """
 from __future__ import annotations
 
@@ -23,7 +19,6 @@ from ..core.artifacts import RunArtifacts
 from ..core.metrics import em_summary, format_summary, summarize
 from ..core.skill import SkillDocument
 from ..data.loaders import load_specs
-from ..data.splits import load_splits
 from ..harness.adapters.alf import AlfAdapter
 from ..harness.adapters.hab import HabAdapter
 from ..harness.adapters.man import ManAdapter
@@ -32,6 +27,8 @@ from ..harness.parsing import ActionIdPlanParser, ManipulationPlanParser
 from ..harness.prompts import build_context, response_format_for
 from ..harness.runner import EpisodeRunner, RunnerConfig
 from ..skillopt.rollout import RolloutConfig, rollout_specs
+from ..jitrl.memory import JitRLMemory
+from ..jitrl.policy import JitRLConfig, JitRLPlanAdjuster
 
 EM_ROOT = Path("/home/pengcheng/EM-Benchmark/EmbodiedBench")
 COPPELIA = (
@@ -135,7 +132,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--method",
         default="baseline",
-        choices=["baseline", "method_a"],
+        choices=["baseline", "method_a", "method_b"],
     )
     parser.add_argument(
         "--skill-file",
@@ -143,16 +140,6 @@ def parse_args() -> argparse.Namespace:
         help="learned skill markdown, required for --method method_a",
     )
     parser.add_argument("--eval-set", default="base")
-    parser.add_argument(
-        "--split-dir",
-        default="",
-        help="mixed-capability split root, e.g. splits/eb-nav",
-    )
-    parser.add_argument(
-        "--split-name",
-        default="test",
-        choices=["train", "val", "test"],
-    )
     parser.add_argument("--split", default="test")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument(
@@ -162,6 +149,16 @@ def parse_args() -> argparse.Namespace:
         help="parallel episode workers (1 = sequential)",
     )
     parser.add_argument("--out", default="")
+    parser.add_argument(
+        "--jitrl-memory",
+        default="",
+        help="JitRL memory JSONL; empty uses <out>/jitrl_memory.jsonl",
+    )
+    parser.add_argument("--jitrl-top-k", type=int, default=5)
+    parser.add_argument("--jitrl-gamma", type=float, default=0.95)
+    parser.add_argument("--jitrl-success-bonus", type=float, default=1.0)
+    parser.add_argument("--jitrl-min-similarity", type=float, default=0.0)
+    parser.add_argument("--jitrl-reorder-only", action="store_true")
     parser.add_argument("--model", default="qwen3.8-27b")
     parser.add_argument("--proxy", default="http://127.0.0.1:7890")
     parser.add_argument("--max-steps", type=int, default=0)
@@ -176,7 +173,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_skill(args: argparse.Namespace) -> str | None:
-    if args.method == "baseline":
+    if args.method in {"baseline", "method_b"}:
         if args.skill_file:
             raise ValueError("--skill-file is only valid with --method method_a")
         return None
@@ -210,7 +207,7 @@ def make_parser(env_name: str):
     )
 
 
-def make_runner_factory(args, out: Path, client):
+def make_runner_factory(args, out: Path, client, plan_adjuster=None):
     counter = itertools.count()
 
     def make_runner(capability: str) -> EpisodeRunner:
@@ -241,6 +238,7 @@ def make_runner_factory(args, out: Path, client):
             parser=make_parser(args.env),
             llm=client,
             config=make_runner_config(args),
+            plan_adjuster=plan_adjuster,
         )
 
     return make_runner
@@ -268,11 +266,25 @@ def run_single_capability(
 
     artifacts = RunArtifacts(out)
     artifacts.save_json("config.json", vars(args))
+    plan_adjuster = None
+    if args.method == "method_b":
+        memory_path = Path(args.jitrl_memory).expanduser() if args.jitrl_memory else out / "jitrl_memory.jsonl"
+        plan_adjuster = JitRLPlanAdjuster(
+            JitRLMemory(memory_path, gamma=args.jitrl_gamma),
+            JitRLConfig(
+                top_k=args.jitrl_top_k,
+                gamma=args.jitrl_gamma,
+                success_bonus=args.jitrl_success_bonus,
+                min_similarity=args.jitrl_min_similarity,
+                reorder_only=args.jitrl_reorder_only,
+            ),
+        )
+
     results = rollout_specs(
         specs,
         skill,
         out_dir=out,
-        runner_factory=make_runner_factory(args, out, client),
+        runner_factory=make_runner_factory(args, out, client, plan_adjuster),
         config=RolloutConfig(
             resume=not args.no_resume,
             verbose=False,
@@ -294,64 +306,12 @@ def run_single_capability(
     print(format_summary(summary))
 
 
-def run_split_dir(
-    args: argparse.Namespace,
-    out: Path,
-    skill: str | None,
-    client: QwenTargetClient,
-) -> None:
-    bundle = load_splits(args.split_dir)
-    if bundle.manifest.get("env_name") not in ("", None, args.env):
-        raise ValueError(
-            f"split belongs to {bundle.manifest.get('env_name')}, "
-            f"not {args.env}"
-        )
-
-    specs = list(getattr(bundle, args.split_name))
-    if args.limit and args.limit > 0:
-        specs = specs[: args.limit]
-    if not specs:
-        raise RuntimeError(f"no episodes in {args.split_dir}/{args.split_name}")
-
-    artifacts = RunArtifacts(out)
-    artifacts.save_json("config.json", vars(args))
-    results = rollout_specs(
-        specs,
-        skill,
-        out_dir=out,
-        runner_factory=make_runner_factory(args, out, client),
-        config=RolloutConfig(
-            resume=not args.no_resume,
-            verbose=False,
-            workers=max(1, args.parallel_workers),
-        ),
-    )
-
-    split_label = f"dev_{args.split_name}" # development split, not official test
-    summary = summarize(results, env_name=args.env, split=split_label)
-    artifacts.save_summary(summary)
-    artifacts.save_json(
-        "em_summary.json",
-        em_summary(
-            results,
-            env_name=args.env,
-            split=split_label,
-            save_path=str(out),
-        ),
-    )
-    print(format_summary(summary))
-
-
 def main() -> None:
     args = parse_args()
-    if args.method not in ("baseline", "method_a"):
+    if args.method not in ("baseline", "method_a", "method_b"):
         raise NotImplementedError(args.method)
 
-    default_name = (
-        f"artifacts/{args.method}_{args.env}"
-        if not args.split_dir
-        else f"artifacts/{args.method}_{args.env}_{args.split_name}"
-    )
+    default_name = f"artifacts/{args.method}_{args.env}_{args.eval_set}"
     out = Path(args.out or default_name).expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
 
@@ -359,10 +319,7 @@ def main() -> None:
     os.environ.setdefault("QWEN_CHAT_THINKING_MODE", "disabled")
     client = QwenTargetClient.from_env(model=args.model, proxy=args.proxy)
     try:
-        if args.split_dir:
-            run_split_dir(args, out, skill, client)
-        else:
-            run_single_capability(args, out, skill, client)
+        run_single_capability(args, out, skill, client)
     finally:
         client.close()
 

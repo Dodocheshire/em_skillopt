@@ -16,7 +16,6 @@ from typing import Sequence
 from ..core.artifacts import RunArtifacts
 from ..core.metrics import format_summary, summarize
 from ..core.types import EpisodeResult, EpisodeSpec
-from ..data.splits import load_splits
 from ..harness.batch import BatchConfig
 from ..harness.capability import CapabilityBatchRunner, RunnerFactory
 
@@ -173,35 +172,7 @@ def _parallel_rollout(
     )
 
 
-def rollout_split(
-    split_dir: str | Path,
-    split_name: str,
-    skill: str | None,
-    *,
-    out_dir: str | Path,
-    runner_factory: RunnerFactory,
-    limit: int = 0,
-    config: RolloutConfig | None = None,
-) -> list[EpisodeResult]:
-    """Load a saved split and run one rollout batch."""
-
-    bundle = load_splits(split_dir)
-    specs = list(getattr(bundle, split_name))
-    if limit and limit > 0:
-        specs = specs[:limit]
-    if not specs:
-        raise ValueError(f"no episodes in {split_dir}/{split_name}")
-    return rollout_specs(
-        specs,
-        skill,
-        out_dir=out_dir,
-        runner_factory=runner_factory,
-        config=config,
-    )
-
-
 __all__ = [
     "RolloutConfig",
     "rollout_specs",
-    "rollout_split",
 ]
