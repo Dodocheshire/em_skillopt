@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -187,10 +188,16 @@ def _parallel_rollout(
     if not pending:
         return []
 
+    record_lock = threading.Lock()
+
     def record(result: EpisodeResult) -> None:
+        # Save immediately: a long shard must not hold every episode in memory
+        # until it ends, otherwise a crash loses the whole shard and there is no
+        # progress signal while it runs.
         artifacts.save_episode(result)
-        results_by_id[result.spec.episode_id] = result
-        print(f"[parallel] done {result.spec.episode_id}")
+        with record_lock:
+            results_by_id[result.spec.episode_id] = result
+            print(f"[parallel] done {result.spec.episode_id}", flush=True)
 
     workers = max(1, config.workers)
 
@@ -224,28 +231,30 @@ def _parallel_rollout(
             f"{len(shards)} shard(s), {min(workers, len(shards))} worker(s)"
         )
 
-        def run_shard(shard: list[EpisodeSpec]) -> list[EpisodeResult]:
+        def run_shard(shard: list[EpisodeSpec]) -> None:
             runner = runner_factory(shard[0].capability)
-            produced: list[EpisodeResult] = []
             try:
                 for spec in shard:
                     try:
-                        produced.append(runner.run_episode(spec, skill=skill))
+                        result = runner.run_episode(spec, skill=skill)
                     except Exception as exc:
-                        print(f"[parallel] {spec.episode_id} failed: {exc!r}")
+                        print(
+                            f"[parallel] {spec.episode_id} failed: {exc!r}",
+                            flush=True,
+                        )
                         if not config.continue_on_error:
                             raise
+                        continue
+                    record(result)
             finally:
                 _close_runner(runner)
-            return produced
 
         with ThreadPoolExecutor(
             max_workers=min(workers, len(shards))
         ) as pool:
             futures = [pool.submit(run_shard, shard) for shard in shards]
             for future in as_completed(futures):
-                for result in future.result():
-                    record(result)
+                future.result()
 
     order = {spec.episode_id: index for index, spec in enumerate(specs)}
     return sorted(

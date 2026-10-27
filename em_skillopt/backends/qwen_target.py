@@ -32,7 +32,7 @@ class QwenTargetConfig:
     temperature: float = 0.0
     max_tokens: int = 8192
     timeout_s: float = 120.0
-    max_retries: int = 3
+    max_retries: int = 5
     enable_thinking: bool | None = None
     max_concurrency: int = 6
     response_format: dict[str, Any] | None = None
@@ -102,7 +102,7 @@ class QwenTargetConfig:
             timeout_s=float(
                 os.getenv("QWEN_CHAT_TIMEOUT_SECONDS", "120") or 120
             ),
-            max_retries=int(os.getenv("QWEN_CHAT_MAX_RETRIES", "3") or 3),
+            max_retries=int(os.getenv("QWEN_CHAT_MAX_RETRIES", "5") or 5),
             enable_thinking=enable_thinking,
             max_concurrency=int(
                 os.getenv("QWEN_CHAT_MAX_CONCURRENCY", "6") or 6
@@ -218,7 +218,7 @@ class QwenTargetClient:
                     # The endpoint sheds load with 429s under concurrency
                     # pressure; backing off harder than the default avoids
                     # burning the whole retry budget in one burst.
-                    time.sleep(min(4 * (2 ** attempt), 30))
+                    time.sleep(min(8 * (2 ** attempt), 60))
                 else:
                     time.sleep(min(2 ** attempt, 10))
 

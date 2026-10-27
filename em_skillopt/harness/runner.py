@@ -35,6 +35,10 @@ from .schema import validate_json_schema
 @dataclass
 class RunnerConfig:
     max_planner_steps: int = 20
+    # Consecutive empty/unparsable plans after which the episode is ended.
+    # The original EM evaluator replans forever, which burns the entire
+    # planner budget (~20 target calls) on a task the model cannot ground.
+    max_empty_replans: int = 3
     max_steps: int | None = None
     max_tokens: int = 8192
     temperature: float | None = None
@@ -79,6 +83,7 @@ class EpisodeRunner:
         success = False
         done = False
         invalid_actions = 0
+        consecutive_empty = 0
         format_errors = 0
         target_system_prompt = ""
         target_user_prompt = ""
@@ -178,7 +183,11 @@ class EpisodeRunner:
             if plan.stop:
                 break
             if plan.error or not plan.actions:
+                consecutive_empty += 1
+                if consecutive_empty >= self.config.max_empty_replans:
+                    break
                 continue
+            consecutive_empty = 0
 
             for action in plan.actions:
                 if len(history) >= max_steps:
