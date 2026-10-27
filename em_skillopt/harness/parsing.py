@@ -57,23 +57,19 @@ class ActionIdPlanParser:
             return ActionPlan(error=f"parse error: {exc}")
 
         if not plan:
-            return ActionPlan(stop=True)
+            # Original EM: empty plan -> no environment step, replan.
+            return ActionPlan(actions=[])
 
         actions: list[ActionValue] = []
         for index, item in enumerate(plan):
             action_id = item.get("action_id") if isinstance(item, dict) else None
-            if (
-                not isinstance(action_id, int)
-                or isinstance(action_id, bool)
-                or not 0 <= action_id < len(action_space)
-            ):
+            if not isinstance(action_id, int) or isinstance(action_id, bool):
                 return ActionPlan(
                     actions=actions,
-                    error=(
-                        f"invalid action_id at index {index}: "
-                        f"{action_id!r} (space size={len(action_space)})"
-                    ),
+                    error=f"non-integer action_id at index {index}: {action_id!r}",
                 )
+            # Out-of-range ids are kept: the environment maps them to random
+            # actions, exactly like the original EM evaluator.
             actions.append(action_id)
 
         return ActionPlan(actions=actions)

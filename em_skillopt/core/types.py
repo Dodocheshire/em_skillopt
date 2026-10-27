@@ -107,6 +107,8 @@ class PlanRecord:
     raw_response: str
     actions: list[ActionValue] = field(default_factory=list)
     error: str | None = None
+    # Full user text sent for this planner step (debug / parity checks).
+    prompt_text: str = ""
 
 
 @dataclass

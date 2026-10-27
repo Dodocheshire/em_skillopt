@@ -30,10 +30,13 @@ from ..skillopt.rollout import RolloutConfig, rollout_specs
 from ..jitrl.memory import JitRLMemory
 from ..jitrl.policy import JitRLConfig, JitRLPlanAdjuster
 
-EM_ROOT = Path("/home/pengcheng/EM-Benchmark/EmbodiedBench")
-COPPELIA = (
-    "/home/pengcheng/EM-Benchmark/"
-    "CoppeliaSim_Pro_V4_1_0_Ubuntu20_04"
+# Overridable so the same code runs on any host (delci / molink2 / ...).
+EM_ROOT = Path(
+    os.environ.get("EB_ROOT", "/home/pengcheng/EM-Benchmark/EmbodiedBench")
+)
+COPPELIA = os.environ.get(
+    "EB_COPPELIA_ROOT",
+    "/home/pengcheng/EM-Benchmark/CoppeliaSim_Pro_V4_1_0_Ubuntu20_04",
 )
 
 

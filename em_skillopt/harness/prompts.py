@@ -84,7 +84,12 @@ def _output_template(env_name: str, language_only: bool) -> str:
     )
 
     if env_name == "eb-man":
-        return template_lang_manip if language_only else template_manip
+        base = template_lang_manip if language_only else template_manip
+        return base + (
+            "\nSTRICT: executable_plan must be a JSON array of 7-integer arrays, "
+            "for example [[50, 42, 17, 6, 61, 36, 1], [50, 42, 17, 6, 61, 36, 0]]. "
+            "Never output action names, objects, or strings inside executable_plan."
+        )
     return template_lang if language_only else template
 
 
@@ -200,7 +205,9 @@ def _vlm_user_builder(
         history: Sequence[TrajectoryStep],
         planner_step: int,
     ) -> str:
-        instruction = (observation.text.strip() or spec.instruction).rstrip(".")
+        # ``observation.text`` carries env feedback after step 0; the human
+        # instruction must always come from the episode spec.
+        instruction = spec.instruction.rstrip(".")
         prompt = f"## Now the human instruction is: {instruction}."
         if language_only:
             prompt += (
@@ -265,9 +272,14 @@ def _man_user_builder(actions: Sequence[Any]):
         history: Sequence[TrajectoryStep],
         planner_step: int,
     ) -> str:
-        instruction = (observation.text.strip() or spec.instruction).rstrip(".")
+        # ``observation.text`` carries env feedback after step 0; the human
+        # instruction must always come from the episode spec.
+        instruction = spec.instruction.rstrip(".")
         coords = observation.metadata.get("object_coords", "")
         prompt = (
+            "\n## STRICT: executable_plan must be a JSON array of 7-integer arrays, "
+            "for example [[50, 42, 17, 6, 61, 36, 1], [50, 42, 17, 6, 61, 36, 0]]. "
+            "Never output action names, objects, or strings inside executable_plan.\n"
             "\n## Now you are supposed to follow the above examples to generate "
             "a sequence of discrete gripper actions that completes the below human "
             f"instruction. \nHuman Instruction: {instruction}.\nInput: {coords}\n"
@@ -295,9 +307,9 @@ def _make_user_builder(
             history: Sequence[TrajectoryStep],
             planner_step: int,
         ) -> str:
-            instruction = (
-                observation.text.strip() or spec.instruction
-            ).rstrip(".")
+            # The original EM nav planner always uses the episode instruction;
+            # observation.text carries env feedback on later steps.
+            instruction = spec.instruction.rstrip(".")
             if planner_step == 0:
                 return (
                     f"## Now the human instruction is: {instruction}."
@@ -422,11 +434,29 @@ def response_format_for(env_name: str, *, language_only: bool = False) -> dict[s
     """Return the EM JSON-schema response format for one domain."""
 
     if env_name == "eb-man":
+        import copy
+
         from embodiedbench.planner.planner_config.generation_guide_manip import (
             llm_generation_guide_manip,
             vlm_generation_guide_manip,
         )
-        schema = llm_generation_guide_manip if language_only else vlm_generation_guide_manip
+        schema = copy.deepcopy(
+            llm_generation_guide_manip if language_only else vlm_generation_guide_manip
+        )
+        # The upstream schema types ``action`` as a string, which lets the model
+        # emit {"action": "move_to"} instead of the 7-number vector.  Force the
+        # array form (same fix the official evaluator applies for Qwen).
+        try:
+            action = schema["properties"]["executable_plan"]["items"]["properties"]["action"]
+            action.update(
+                type="array",
+                items={"type": "integer", "minimum": 0, "maximum": 119},
+                minItems=7,
+                maxItems=7,
+                description="Exactly [x,y,z,rx,ry,rz,gripper]; no names or objects.",
+            )
+        except Exception:
+            pass
     else:
         from embodiedbench.planner.planner_config.generation_guide import (
             llm_generation_guide,

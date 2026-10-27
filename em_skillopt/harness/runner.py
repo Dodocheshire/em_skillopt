@@ -20,6 +20,7 @@ from ..core.protocols import (
     PlanAdjuster,
     PlanParser,
 )
+from .parsing import load_json_value
 from ..core.types import (
     ActionPlan,
     EpisodeResult,
@@ -57,10 +58,6 @@ class EpisodeRunner:
         self.llm = llm
         self.plan_adjuster = plan_adjuster
         self.config = config or RunnerConfig()
-        if not self.config.response_format:
-            raise ValueError(
-                "EpisodeRunner requires a JSON-schema response_format"
-            )
 
     def run_episode(
         self,
@@ -94,6 +91,18 @@ class EpisodeRunner:
                 skill,
                 planner_step=planner_step,
             )
+            user_text_for_log = ""
+            for _message in messages:
+                _content = _message.get("content", "")
+                if isinstance(_content, list):
+                    user_text_for_log = "\n".join(
+                        str(_part.get("text", ""))
+                        for _part in _content
+                        if isinstance(_part, dict) and _part.get("type") == "text"
+                    )
+                elif _content:
+                    user_text_for_log = str(_content)
+
             if planner_step == 0:
                 for message in messages:
                     content = message.get("content", "")
@@ -120,10 +129,13 @@ class EpisodeRunner:
             token_usage = token_usage + response.usage
 
             try:
-                document = validate_json_schema(
-                    response.text,
-                    self.config.response_format,
-                )
+                if self.config.response_format:
+                    document = validate_json_schema(
+                        response.text,
+                        self.config.response_format,
+                    )
+                else:
+                    document = load_json_value(response.text)
             except Exception as exc:
                 plan = ActionPlan(
                     raw=response.text,
@@ -154,15 +166,19 @@ class EpisodeRunner:
                     raw_response=response.text,
                     actions=plan.actions,
                     error=plan.error,
+                    prompt_text=user_text_for_log,
                 )
             )
 
             if plan.error:
                 format_errors += 1
 
-            # 空计划、模型主动停止、解析失败且没有有效前缀，都结束当前 episode。
-            if plan.stop or not plan.actions:
+            # Match the original EM evaluator: an empty or unparsable plan
+            # executes no environment step; the loop simply replans.
+            if plan.stop:
                 break
+            if plan.error or not plan.actions:
+                continue
 
             for action in plan.actions:
                 if len(history) >= max_steps:

@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import mimetypes
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,6 +34,7 @@ class QwenTargetConfig:
     timeout_s: float = 120.0
     max_retries: int = 3
     enable_thinking: bool | None = None
+    max_concurrency: int = 6
     response_format: dict[str, Any] | None = None
     proxy: str | None = None
     extra_body: dict[str, Any] = field(default_factory=dict)
@@ -102,6 +104,9 @@ class QwenTargetConfig:
             ),
             max_retries=int(os.getenv("QWEN_CHAT_MAX_RETRIES", "3") or 3),
             enable_thinking=enable_thinking,
+            max_concurrency=int(
+                os.getenv("QWEN_CHAT_MAX_CONCURRENCY", "6") or 6
+            ),
             proxy=proxy_value,
         )
 
@@ -170,15 +175,20 @@ class QwenTargetClient:
             payload["response_format"] = response_format
 
         last_error: Exception | None = None
+        sem = _call_semaphore(self.config.max_concurrency)
         for attempt in range(max(1, self.config.max_retries)):
             try:
                 # ``extra_body`` is an OpenAI SDK keyword that merges its
                 # entries into the request body.  Sending it as a JSON field
                 # would leave ``chat_template_kwargs`` nested and ignored.
-                response = self.client.chat.completions.create(
-                    **payload,
-                    extra_body=extra_body or None,
-                )
+                # The semaphore keeps the number of in-flight requests below
+                # the endpoint's concurrency limit; going above it triggers
+                # 429s whose retries cost far more than the queueing does.
+                with sem:
+                    response = self.client.chat.completions.create(
+                        **payload,
+                        extra_body=extra_body or None,
+                    )
                 text = response.choices[0].message.content or ""
                 usage = getattr(response, "usage", None)
                 return LLMResponse(
@@ -198,7 +208,19 @@ class QwenTargetClient:
                 last_error = exc
                 if attempt + 1 >= self.config.max_retries:
                     break
-                time.sleep(min(2 ** attempt, 10))
+                text = str(exc)
+                throttled = (
+                    "429" in text
+                    or "RateLimit" in type(exc).__name__
+                    or "RateLimit" in text
+                )
+                if throttled:
+                    # The endpoint sheds load with 429s under concurrency
+                    # pressure; backing off harder than the default avoids
+                    # burning the whole retry budget in one burst.
+                    time.sleep(min(4 * (2 ** attempt), 30))
+                else:
+                    time.sleep(min(2 ** attempt, 10))
 
         raise RuntimeError(
             f"Qwen target call failed after "
@@ -251,3 +273,20 @@ __all__ = [
     "QwenTargetClient",
     "QwenTargetConfig",
 ]
+
+
+_CALL_SEM: threading.BoundedSemaphore | None = None
+_CALL_SEM_LIMIT = 0
+_CALL_SEM_GUARD = threading.Lock()
+
+
+def _call_semaphore(limit: int) -> threading.BoundedSemaphore:
+    """Process-wide cap on concurrent target requests."""
+
+    global _CALL_SEM, _CALL_SEM_LIMIT
+    limit = max(1, int(limit))
+    with _CALL_SEM_GUARD:
+        if _CALL_SEM is None or _CALL_SEM_LIMIT != limit:
+            _CALL_SEM = threading.BoundedSemaphore(limit)
+            _CALL_SEM_LIMIT = limit
+    return _CALL_SEM

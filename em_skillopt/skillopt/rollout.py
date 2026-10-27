@@ -4,10 +4,24 @@ This module is intentionally environment-agnostic.  The caller supplies a
 ``runner_factory(capability) -> EpisodeRunner`` that knows how to construct the
 right simulator, adapter, prompt context, and parser.  The shared target LLM
 client is owned by the caller.
+
+Parallelism
+-----------
+When several workers are requested the specs are split into per-capability,
+*contiguous, index-sorted* shards, and each shard is executed by one long-lived
+runner.  Reusing a runner is important for simulators whose adapters can only
+seek forward (e.g. Habitat, whose ``reset()`` advances an internal episode
+iterator): a fresh env per episode would re-walk the whole dataset for every
+episode, which dominates the runtime.
+
+Set ``RolloutConfig.shard_capability = False`` to fall back to the legacy
+one-env-per-episode behaviour.
 """
 from __future__ import annotations
 
 import hashlib
+import math
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +40,7 @@ class RolloutConfig:
     continue_on_error: bool = True
     verbose: bool = True
     workers: int = 1
+    shard_capability: bool = True
 
 
 def _skill_hash(skill: str | None) -> str:
@@ -72,6 +87,7 @@ def rollout_specs(
             "skill_sha256": _skill_hash(skill),
             "resume": cfg.resume,
             "workers": cfg.workers,
+            "shard_capability": cfg.shard_capability,
         },
     )
 
@@ -115,6 +131,36 @@ def rollout_specs(
     return results
 
 
+def _sort_key(spec: EpisodeSpec):
+    return (spec.index if spec.index is not None else 0, spec.episode_id)
+
+
+def _make_shards(
+    pending: Sequence[EpisodeSpec],
+    workers: int,
+) -> list[list[EpisodeSpec]]:
+    """Split pending specs into contiguous, index-sorted per-capability shards.
+
+    Shard count per capability is proportional to that capability's share of
+    the batch, capped by ``workers`` and by the group size.
+    """
+
+    groups: dict[str, list[EpisodeSpec]] = defaultdict(list)
+    for spec in pending:
+        groups[spec.capability].append(spec)
+
+    total = len(pending)
+    shards: list[list[EpisodeSpec]] = []
+    for capability in sorted(groups):
+        group = sorted(groups[capability], key=_sort_key)
+        share = workers * len(group) / total
+        count = max(1, min(len(group), workers, int(round(share))))
+        size = math.ceil(len(group) / count)
+        for start in range(0, len(group), size):
+            shards.append(group[start:start + size])
+    return shards
+
+
 def _parallel_rollout(
     specs: Sequence[EpisodeSpec],
     skill: str | None,
@@ -123,7 +169,12 @@ def _parallel_rollout(
     runner_factory: RunnerFactory,
     config: RolloutConfig,
 ) -> list[EpisodeResult]:
-    """Run independent episodes concurrently; each worker owns one env."""
+    """Run independent episodes concurrently.
+
+    With ``shard_capability`` (default) each worker owns one simulator and walks
+    a contiguous, index-ascending shard of a single capability.  Otherwise every
+    episode gets a fresh env (legacy behaviour).
+    """
 
     pending = [
         spec for spec in specs
@@ -136,40 +187,78 @@ def _parallel_rollout(
     if not pending:
         return []
 
-    def run_one(spec: EpisodeSpec) -> EpisodeResult:
-        runner = runner_factory(spec.capability)
-        try:
-            return runner.run_episode(spec, skill=skill)
-        finally:
-            env = getattr(runner, "env", None)
-            close = getattr(env, "close", None)
-            if callable(close):
-                close()
+    def record(result: EpisodeResult) -> None:
+        artifacts.save_episode(result)
+        results_by_id[result.spec.episode_id] = result
+        print(f"[parallel] done {result.spec.episode_id}")
 
-    workers = min(max(1, config.workers), len(pending))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {
-            pool.submit(run_one, spec): spec
-            for spec in pending
-        }
-        for future in as_completed(futures):
-            spec = futures[future]
+    workers = max(1, config.workers)
+
+    if not config.shard_capability:
+        def run_one(spec: EpisodeSpec) -> EpisodeResult:
+            runner = runner_factory(spec.capability)
             try:
-                result = future.result()
-            except Exception as exc:
-                print(f"[parallel] {spec.episode_id} failed: {exc!r}")
-                if not config.continue_on_error:
-                    raise
-                continue
-            artifacts.save_episode(result)
-            results_by_id[spec.episode_id] = result
-            print(f"[parallel] done {spec.episode_id}")
+                return runner.run_episode(spec, skill=skill)
+            finally:
+                _close_runner(runner)
+
+        with ThreadPoolExecutor(max_workers=min(workers, len(pending))) as pool:
+            futures = {
+                pool.submit(run_one, spec): spec
+                for spec in pending
+            }
+            for future in as_completed(futures):
+                spec = futures[future]
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    print(f"[parallel] {spec.episode_id} failed: {exc!r}")
+                    if not config.continue_on_error:
+                        raise
+                    continue
+                record(result)
+    else:
+        shards = _make_shards(pending, workers)
+        print(
+            f"[parallel] {len(pending)} episode(s) in "
+            f"{len(shards)} shard(s), {min(workers, len(shards))} worker(s)"
+        )
+
+        def run_shard(shard: list[EpisodeSpec]) -> list[EpisodeResult]:
+            runner = runner_factory(shard[0].capability)
+            produced: list[EpisodeResult] = []
+            try:
+                for spec in shard:
+                    try:
+                        produced.append(runner.run_episode(spec, skill=skill))
+                    except Exception as exc:
+                        print(f"[parallel] {spec.episode_id} failed: {exc!r}")
+                        if not config.continue_on_error:
+                            raise
+            finally:
+                _close_runner(runner)
+            return produced
+
+        with ThreadPoolExecutor(
+            max_workers=min(workers, len(shards))
+        ) as pool:
+            futures = [pool.submit(run_shard, shard) for shard in shards]
+            for future in as_completed(futures):
+                for result in future.result():
+                    record(result)
 
     order = {spec.episode_id: index for index, spec in enumerate(specs)}
     return sorted(
         results_by_id.values(),
         key=lambda result: order[result.spec.episode_id],
     )
+
+
+def _close_runner(runner) -> None:
+    env = getattr(runner, "env", None)
+    close = getattr(env, "close", None)
+    if callable(close):
+        close()
 
 
 __all__ = [
