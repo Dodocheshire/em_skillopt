@@ -35,6 +35,10 @@ class QwenTargetConfig:
     max_retries: int = 5
     enable_thinking: bool | None = None
     max_concurrency: int = 6
+    # Wall-clock ceiling for one HTTP call. httpx timeouts turned out not to
+    # be enough: a provider connection with an empty response body left a
+    # worker thread blocked forever (observed 2026-10-28 01:16).
+    hard_timeout_s: float = 180.0
     response_format: dict[str, Any] | None = None
     proxy: str | None = None
     extra_body: dict[str, Any] = field(default_factory=dict)
@@ -107,6 +111,9 @@ class QwenTargetConfig:
             max_concurrency=int(
                 os.getenv("QWEN_CHAT_MAX_CONCURRENCY", "6") or 6
             ),
+            hard_timeout_s=float(
+                os.getenv("QWEN_CHAT_HARD_TIMEOUT_S", "180") or 180
+            ),
             proxy=proxy_value,
         )
 
@@ -116,18 +123,25 @@ class QwenTargetClient:
 
     def __init__(self, config: QwenTargetConfig | None = None) -> None:
         self.config = config or QwenTargetConfig.from_env()
-        self._http_client = (
-            httpx.Client(
-                proxy=self.config.proxy,
-                timeout=self.config.timeout_s,
-            )
-            if self.config.proxy
-            else None
+        t = self.config.timeout_s
+        self._http_client = httpx.Client(
+            proxy=self.config.proxy,
+            timeout=httpx.Timeout(
+                connect=min(15.0, t),
+                read=t,
+                write=min(30.0, t),
+                pool=min(30.0, t),
+            ),
+            limits=httpx.Limits(
+                max_connections=self.config.max_concurrency * 2,
+                max_keepalive_connections=self.config.max_concurrency,
+            ),
         )
         self.client = OpenAI(
             api_key=self.config.api_key,
             base_url=self.config.base_url,
-            timeout=self.config.timeout_s,
+            timeout=t,
+            max_retries=0,  # our own loop owns all retrying
             http_client=self._http_client,
         )
 
@@ -185,9 +199,12 @@ class QwenTargetClient:
                 # the endpoint's concurrency limit; going above it triggers
                 # 429s whose retries cost far more than the queueing does.
                 with sem:
-                    response = self.client.chat.completions.create(
-                        **payload,
-                        extra_body=extra_body or None,
+                    response = _call_with_deadline(
+                        lambda: self.client.chat.completions.create(
+                            **payload,
+                            extra_body=extra_body or None,
+                        ),
+                        self.config.hard_timeout_s,
                     )
                 text = response.choices[0].message.content or ""
                 usage = getattr(response, "usage", None)
@@ -290,3 +307,29 @@ def _call_semaphore(limit: int) -> threading.BoundedSemaphore:
             _CALL_SEM = threading.BoundedSemaphore(limit)
             _CALL_SEM_LIMIT = limit
     return _CALL_SEM
+
+
+def _call_with_deadline(fn, timeout_s: float):
+    """Run ``fn`` in a daemon thread and give up after ``timeout_s``.
+
+    ``httpx`` read timeouts are per-operation and, in practice, a stuck
+    provider connection can leave a worker blocked indefinitely. A hard
+    wall-clock ceiling guarantees the episode loop keeps making progress.
+    """
+
+    box: dict[str, object] = {}
+
+    def runner() -> None:
+        try:
+            box["value"] = fn()
+        except BaseException as exc:  # noqa: BLE001
+            box["error"] = exc
+
+    thread = threading.Thread(target=runner, daemon=True)
+    thread.start()
+    thread.join(max(1.0, float(timeout_s)))
+    if thread.is_alive():
+        raise TimeoutError(f"hard deadline {timeout_s:.0f}s exceeded")
+    if "error" in box:
+        raise box["error"]  # type: ignore[misc]
+    return box.get("value")
