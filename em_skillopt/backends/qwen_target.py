@@ -32,7 +32,7 @@ class QwenTargetConfig:
     temperature: float = 0.0
     max_tokens: int = 8192
     timeout_s: float = 120.0
-    max_retries: int = 5
+    max_retries: int = 8
     enable_thinking: bool | None = None
     max_concurrency: int = 6
     # Wall-clock ceiling for one HTTP call. httpx timeouts turned out not to
@@ -106,7 +106,7 @@ class QwenTargetConfig:
             timeout_s=float(
                 os.getenv("QWEN_CHAT_TIMEOUT_SECONDS", "120") or 120
             ),
-            max_retries=int(os.getenv("QWEN_CHAT_MAX_RETRIES", "5") or 5),
+            max_retries=int(os.getenv("QWEN_CHAT_MAX_RETRIES", "8") or 8),
             enable_thinking=enable_thinking,
             max_concurrency=int(
                 os.getenv("QWEN_CHAT_MAX_CONCURRENCY", "6") or 6

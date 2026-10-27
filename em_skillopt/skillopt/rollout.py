@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import math
 import threading
+import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -42,6 +43,8 @@ class RolloutConfig:
     verbose: bool = True
     workers: int = 1
     shard_capability: bool = True
+    # Dropped episodes shrink the gate's denominator; retry before giving up.
+    episode_retries: int = 2
 
 
 def _skill_hash(skill: str | None) -> str:
@@ -235,17 +238,30 @@ def _parallel_rollout(
             runner = runner_factory(shard[0].capability)
             try:
                 for spec in shard:
-                    try:
-                        result = runner.run_episode(spec, skill=skill)
-                    except Exception as exc:
-                        print(
-                            f"[parallel] {spec.episode_id} failed: {exc!r}",
-                            flush=True,
-                        )
-                        if not config.continue_on_error:
-                            raise
-                        continue
-                    record(result)
+                    result = None
+                    for attempt in range(config.episode_retries + 1):
+                        try:
+                            result = runner.run_episode(spec, skill=skill)
+                            break
+                        except Exception as exc:  # noqa: BLE001
+                            if attempt >= config.episode_retries:
+                                print(
+                                    f"[parallel] {spec.episode_id} failed "
+                                    f"after {attempt + 1} attempt(s): {exc!r}",
+                                    flush=True,
+                                )
+                                if not config.continue_on_error:
+                                    raise
+                            else:
+                                print(
+                                    f"[parallel] {spec.episode_id} retry "
+                                    f"{attempt + 1}/{config.episode_retries}: "
+                                    f"{exc!r}",
+                                    flush=True,
+                                )
+                                time.sleep(min(30, 10 * (attempt + 1)))
+                    if result is not None:
+                        record(result)
             finally:
                 _close_runner(runner)
 
