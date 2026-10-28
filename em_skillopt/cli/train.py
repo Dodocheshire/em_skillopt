@@ -363,6 +363,11 @@ def main() -> None:
                         update.content,
                         val_specs,
                         runner_factory=gate_factory,
+                        proc_spec_factory=proc_spec_factory(
+                            args,
+                            step_dir / "gate",
+                            step_dir / "gate" / "images",
+                        ),
                         out_dir=step_dir / "gate",
                         min_reward_delta=args.min_reward_delta,
                         workers=args.parallel_workers or len(val_specs),
