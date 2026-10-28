@@ -359,6 +359,8 @@ def _process_rollout(
             kind = message[0]
             if kind == "ok":
                 collected.extend(message[1])
+            elif kind == "one":
+                pass  # already persisted and announced by the child
             elif kind == "err":
                 print(f"[parallel] {message[1]} failed: {message[2]}", flush=True)
             else:
