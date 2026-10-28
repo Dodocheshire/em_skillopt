@@ -20,6 +20,7 @@ from ..core.skill import SkillStore
 from ..data.splits import load_splits
 from ..harness.parsing import ActionIdPlanParser, ManipulationPlanParser
 from ..harness.prompts import build_context, response_format_for
+from ..harness.procpool import RunnerSpec
 from ..harness.runner import EpisodeRunner, RunnerConfig
 from ..skillopt.aggregate import merge_patches
 from ..skillopt.clip import rank_and_clip
@@ -175,6 +176,21 @@ def _make_runner_factory(args, out_dir: Path, image_root: Path, client):
     return make_runner
 
 
+def proc_spec_factory(args, out_dir: Path, image_root: Path):
+    """Return capability -> RunnerSpec so workers can be spawned."""
+
+    def build(capability: str) -> RunnerSpec:
+        return RunnerSpec.build(
+            args.env,
+            capability,
+            out_dir,
+            image_root / capability,
+            args,
+        )
+
+    return build
+
+
 def main() -> None:
     args = parse_args()
     out = Path(
@@ -251,6 +267,9 @@ def main() -> None:
                     current.content or None,
                     out_dir=step_dir / "rollout",
                     runner_factory=factory,
+                    proc_spec_factory=proc_spec_factory(
+                        args, step_dir, step_dir / "images"
+                    ),
                     config=RolloutConfig(
                         resume=False,
                         verbose=True,

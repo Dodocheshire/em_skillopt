@@ -100,12 +100,14 @@ def _eval_skill(
     runner_factory: RunnerFactory,
     out_dir: Path,
     workers: int = 1,
+    proc_spec_factory=None,
 ) -> list[EpisodeResult]:
     return rollout_specs(
         specs,
         skill,
         out_dir=out_dir,
         runner_factory=runner_factory,
+        proc_spec_factory=proc_spec_factory,
         config=RolloutConfig(
             resume=False,
             verbose=False,
@@ -130,6 +132,7 @@ def gate_candidate(
     mixed_weight: float = 0.5,
     candidate_cache: dict[str, EvalSummary] | None = None,
     step: int = 0,
+    proc_spec_factory=None,
 ) -> GateResult:
     """Evaluate current vs candidate, keeping best-so-far state."""
 
@@ -147,6 +150,7 @@ def gate_candidate(
             runner_factory=runner_factory,
             out_dir=root / "current",
             workers=workers,
+            proc_spec_factory=proc_spec_factory,
         )
         current = summarize(
             current_results,
@@ -174,6 +178,7 @@ def gate_candidate(
             runner_factory=runner_factory,
             out_dir=root / "candidate",
             workers=workers,
+            proc_spec_factory=proc_spec_factory,
         )
         candidate = summarize(
             candidate_results,

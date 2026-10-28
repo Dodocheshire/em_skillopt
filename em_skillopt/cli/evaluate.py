@@ -25,6 +25,7 @@ from ..harness.adapters.man import ManAdapter
 from ..harness.adapters.nav import NavAdapter
 from ..harness.parsing import ActionIdPlanParser, ManipulationPlanParser
 from ..harness.prompts import build_context, response_format_for
+from ..harness.procpool import RunnerSpec
 from ..harness.runner import EpisodeRunner, RunnerConfig
 from ..skillopt.rollout import RolloutConfig, rollout_specs
 from ..jitrl.memory import JitRLMemory
@@ -283,11 +284,21 @@ def run_single_capability(
             ),
         )
 
+    def proc_spec_factory(capability: str) -> RunnerSpec:
+        return RunnerSpec.build(
+            args.env,
+            capability,
+            out,
+            out / "images" / capability,
+            args,
+        )
+
     results = rollout_specs(
         specs,
         skill,
         out_dir=out,
         runner_factory=make_runner_factory(args, out, client, plan_adjuster),
+        proc_spec_factory=proc_spec_factory,
         config=RolloutConfig(
             resume=not args.no_resume,
             verbose=False,

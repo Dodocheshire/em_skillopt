@@ -66,6 +66,7 @@ def rollout_specs(
     out_dir: str | Path,
     runner_factory: RunnerFactory,
     config: RolloutConfig | None = None,
+    proc_spec_factory=None,
 ) -> list[EpisodeResult]:
     """Run specs with one skill and save artifacts under ``out_dir``.
 
@@ -106,11 +107,17 @@ def rollout_specs(
         and specs[0].env_name in cfg.process_isolation_envs
     )
     if needs_processes:
+        if proc_spec_factory is None:
+            raise RuntimeError(
+                f"{specs[0].env_name} keeps its simulator in process-global "
+                "state; running it with threads produces corrupt observations. "
+                "Pass proc_spec_factory so workers can be spawned."
+            )
         results = _process_rollout(
             specs,
             skill,
             artifacts=artifacts,
-            runner_factory=runner_factory,
+            proc_spec_factory=proc_spec_factory,
             config=cfg,
         )
     elif cfg.workers and cfg.workers > 1:
@@ -297,49 +304,15 @@ def _parallel_rollout(
     )
 
 
-# ---------------------------------------------------------------- processes
-# Inherited by forked children; a closure cannot be pickled but fork copies it.
-_PROC_CTX: dict = {}
-
-
-def _proc_child(shard, conn) -> None:
-    """Run one shard in a dedicated process (one simulator per process)."""
-
-    runner = None
-    try:
-        factory = _PROC_CTX["factory"]
-        skill = _PROC_CTX["skill"]
-        runner = factory(shard[0].capability)
-        produced = []
-        for spec in shard:
-            try:
-                produced.append(runner.run_episode(spec, skill=skill))
-            except Exception as exc:  # noqa: BLE001
-                conn.send(("err", spec.episode_id, repr(exc)))
-        conn.send(("ok", produced))
-    except Exception as exc:  # noqa: BLE001
-        conn.send(("fatal", repr(exc)))
-    finally:
-        if runner is not None:
-            try:
-                _close_runner(runner)
-            except Exception:  # noqa: BLE001
-                pass
-        try:
-            conn.close()
-        except Exception:  # noqa: BLE001
-            pass
-
-
 def _process_rollout(
     specs: Sequence[EpisodeSpec],
     skill: str | None,
     *,
     artifacts: RunArtifacts,
-    runner_factory: RunnerFactory,
+    proc_spec_factory,
     config: RolloutConfig,
 ) -> list[EpisodeResult]:
-    """Sharded rollout with one simulator per OS process."""
+    """Sharded rollout with one simulator per spawned OS process."""
 
     pending = [
         spec for spec in specs
@@ -350,26 +323,26 @@ def _process_rollout(
 
     results_by_id: dict[str, EpisodeResult] = {}
     shards = _make_shards(pending, max(1, config.workers))
-    _PROC_CTX["factory"] = runner_factory
-    _PROC_CTX["skill"] = skill
 
-    ctx = mp.get_context("fork")
-    ctx_workers = min(len(shards), max(1, config.workers))
+    ctx = mp.get_context("spawn")
+    workers = min(len(shards), max(1, config.workers))
     print(
         f"[parallel] {len(pending)} episode(s) in {len(shards)} shard(s), "
-        f"{ctx_workers} process(es), one env per process",
+        f"{workers} spawned process(es), one env per process",
         flush=True,
     )
 
-    running = []
     queue: list[list[EpisodeSpec]] = list(shards)
+    running = []
     while queue or running:
-        while queue and len(running) < ctx_workers:
+        while queue and len(running) < workers:
             shard = queue.pop(0)
+            runner_spec = proc_spec_factory(shard[0].capability)
+            runner_spec.skill = skill
             parent_conn, child_conn = ctx.Pipe(duplex=False)
             process = ctx.Process(
-                target=_proc_child,
-                args=(shard, child_conn),
+                target=_spawn_entry,
+                args=(runner_spec, shard, child_conn),
                 daemon=True,
             )
             process.start()
@@ -405,6 +378,14 @@ def _process_rollout(
         results_by_id.values(),
         key=lambda result: order[result.spec.episode_id],
     )
+
+
+def _spawn_entry(runner_spec, shard, conn) -> None:
+    """Top-level (picklable) entry point for a spawned worker."""
+
+    from ..harness.procpool import run_shard
+
+    run_shard(runner_spec, shard, conn)
 
 
 def _close_runner(runner) -> None:
