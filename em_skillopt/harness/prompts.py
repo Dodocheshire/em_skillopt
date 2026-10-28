@@ -209,23 +209,29 @@ def _vlm_user_builder(
         # instruction must always come from the episode spec.
         instruction = spec.instruction.rstrip(".")
         prompt = f"## Now the human instruction is: {instruction}."
-        if language_only:
-            prompt += (
-                " You are supposed to output in json. You need to output your "
-                "reasoning steps and plan. At the end, output the action id "
-                f"(0 ~ {len(actions) - 1}) from the available actions to excute."
-            )
-        else:
-            prompt += (
-                " You are supposed to output in json. You need to describe "
-                "current visual state from the image, output your reasoning "
-                "steps and plan. At the end, output the action id "
-                f"(0 ~ {len(actions) - 1}) from the available actions to excute."
-            )
 
+        # First planner call: EB's ``VLMPlanner.process_prompt`` appends the
+        # output-format sentence right after the instruction.
         if not history:
+            if language_only:
+                prompt += (
+                    " You are supposed to output in json. You need to output your "
+                    "reasoning steps and plan. At the end, output the action id "
+                    f"(0 ~ {len(actions) - 1}) from the available actions to excute."
+                )
+            else:
+                prompt += (
+                    " You are supposed to output in json. You need to describe "
+                    "current visual state from the image, output your reasoning "
+                    "steps and plan. At the end, output the action id "
+                    f"(0 ~ {len(actions) - 1}) from the available actions to excute."
+                )
             return prompt
 
+        # Replan calls: the official prompt goes instruction -> action history ->
+        # closing suffix, WITHOUT repeating the output-format sentence. Keeping
+        # that sentence here made our second-and-later prompts diverge from the
+        # official evaluator.
         prompt += "\n\n The action history:"
         for index, step in enumerate(history):
             name = (
