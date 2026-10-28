@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import multiprocessing as mp
 import threading
 import time
 from collections import defaultdict
@@ -45,6 +46,10 @@ class RolloutConfig:
     shard_capability: bool = True
     # Dropped episodes shrink the gate's denominator; retry before giving up.
     episode_retries: int = 2
+    # Domains whose simulator has process-global state (habitat-sim, CoppeliaSim)
+    # must never host two instances in one process; those run one env per
+    # forked worker process instead of one per thread.
+    process_isolation_envs: frozenset[str] = frozenset({"eb-hab", "eb-man"})
 
 
 def _skill_hash(skill: str | None) -> str:
@@ -95,7 +100,20 @@ def rollout_specs(
         },
     )
 
-    if cfg.workers and cfg.workers > 1:
+    needs_processes = (
+        cfg.workers
+        and cfg.workers > 1
+        and specs[0].env_name in cfg.process_isolation_envs
+    )
+    if needs_processes:
+        results = _process_rollout(
+            specs,
+            skill,
+            artifacts=artifacts,
+            runner_factory=runner_factory,
+            config=cfg,
+        )
+    elif cfg.workers and cfg.workers > 1:
         results = _parallel_rollout(
             specs,
             skill,
@@ -271,6 +289,116 @@ def _parallel_rollout(
             futures = [pool.submit(run_shard, shard) for shard in shards]
             for future in as_completed(futures):
                 future.result()
+
+    order = {spec.episode_id: index for index, spec in enumerate(specs)}
+    return sorted(
+        results_by_id.values(),
+        key=lambda result: order[result.spec.episode_id],
+    )
+
+
+# ---------------------------------------------------------------- processes
+# Inherited by forked children; a closure cannot be pickled but fork copies it.
+_PROC_CTX: dict = {}
+
+
+def _proc_child(shard, conn) -> None:
+    """Run one shard in a dedicated process (one simulator per process)."""
+
+    runner = None
+    try:
+        factory = _PROC_CTX["factory"]
+        skill = _PROC_CTX["skill"]
+        runner = factory(shard[0].capability)
+        produced = []
+        for spec in shard:
+            try:
+                produced.append(runner.run_episode(spec, skill=skill))
+            except Exception as exc:  # noqa: BLE001
+                conn.send(("err", spec.episode_id, repr(exc)))
+        conn.send(("ok", produced))
+    except Exception as exc:  # noqa: BLE001
+        conn.send(("fatal", repr(exc)))
+    finally:
+        if runner is not None:
+            try:
+                _close_runner(runner)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _process_rollout(
+    specs: Sequence[EpisodeSpec],
+    skill: str | None,
+    *,
+    artifacts: RunArtifacts,
+    runner_factory: RunnerFactory,
+    config: RolloutConfig,
+) -> list[EpisodeResult]:
+    """Sharded rollout with one simulator per OS process."""
+
+    pending = [
+        spec for spec in specs
+        if not (config.resume and artifacts.episode_done(spec.episode_id))
+    ]
+    if not pending:
+        return []
+
+    results_by_id: dict[str, EpisodeResult] = {}
+    shards = _make_shards(pending, max(1, config.workers))
+    _PROC_CTX["factory"] = runner_factory
+    _PROC_CTX["skill"] = skill
+
+    ctx = mp.get_context("fork")
+    ctx_workers = min(len(shards), max(1, config.workers))
+    print(
+        f"[parallel] {len(pending)} episode(s) in {len(shards)} shard(s), "
+        f"{ctx_workers} process(es), one env per process",
+        flush=True,
+    )
+
+    running = []
+    queue: list[list[EpisodeSpec]] = list(shards)
+    while queue or running:
+        while queue and len(running) < ctx_workers:
+            shard = queue.pop(0)
+            parent_conn, child_conn = ctx.Pipe(duplex=False)
+            process = ctx.Process(
+                target=_proc_child,
+                args=(shard, child_conn),
+                daemon=True,
+            )
+            process.start()
+            child_conn.close()
+            running.append((process, parent_conn, shard))
+
+        process, conn, shard = running.pop(0)
+        collected: list[EpisodeResult] = []
+        while True:
+            try:
+                message = conn.recv()
+            except EOFError:
+                break
+            kind = message[0]
+            if kind == "ok":
+                collected.extend(message[1])
+            elif kind == "err":
+                print(f"[parallel] {message[1]} failed: {message[2]}", flush=True)
+            else:
+                print(f"[parallel] shard fatal: {message[1]}", flush=True)
+        process.join()
+        conn.close()
+
+        for result in collected:
+            if config.resume and artifacts.episode_done(result.spec.episode_id):
+                continue
+            artifacts.save_episode(result)
+            results_by_id[result.spec.episode_id] = result
+            print(f"[parallel] done {result.spec.episode_id}", flush=True)
 
     order = {spec.episode_id: index for index, spec in enumerate(specs)}
     return sorted(
