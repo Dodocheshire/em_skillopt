@@ -10,7 +10,7 @@ The runner is domain-agnostic.  Domain-specific behavior lives in:
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from ..core.protocols import (
@@ -76,6 +76,15 @@ class EpisodeRunner:
         )
 
         observation = self.env.reset(spec)
+        # The simulator is authoritative for the task instruction: our split
+        # files were built with a different episode ordering, so
+        # ``spec.instruction`` can describe a different episode than
+        # ``spec.index`` loads (hab: 9 of the first 10 disagreed, which made the
+        # agent chase the wrong task). Every adapter exposes the env's own
+        # instruction as the reset observation's text.
+        env_instruction = (observation.text or "").strip()
+        if env_instruction:
+            spec = replace(spec, instruction=env_instruction)
         history: list[TrajectoryStep] = []
         plans: list[PlanRecord] = []
         token_usage = TokenUsage()
