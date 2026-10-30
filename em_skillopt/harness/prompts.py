@@ -417,7 +417,20 @@ class DomainContext:
             image_first=self.env_name in {"eb-nav", "eb-alf", "eb-hab"},
             system_as_user=True,
         )
-        messages = builder.build(
+        if self.env_name == "eb-man":
+            # ManipPlanner.get_message concatenates general_prompt+task_prompt
+            # directly (task_prompt starts with a newline), without the generic
+            # ContextBuilder's additional two-newline separator.
+            from .context import build_system_prompt
+            text = build_system_prompt(base, skill) + _man_user_builder([])(
+                spec, observation, history, planner_step
+            )
+            messages = [{"role": "user", "content": [
+                {"type": "text", "text": text},
+                *({"type": "image_path", "path": path} for path in observation.images),
+            ]}]
+        else:
+            messages = builder.build(
             spec,
             observation,
             history,
@@ -461,7 +474,7 @@ def response_format_for(env_name: str, *, language_only: bool = False) -> dict[s
                 items={"type": "integer", "minimum": 0, "maximum": 119},
                 minItems=7,
                 maxItems=7,
-                description="Exactly [x,y,z,rx,ry,rz,gripper]; no names or objects.",
+                description="Exactly [x,y,z,rx,ry,rz,gripper]. Position: 0..100; rotation: 0..119; gripper: 0 or 1. No function calls or prose.",
             )
         except Exception:
             pass
