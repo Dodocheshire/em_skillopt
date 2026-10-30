@@ -5,7 +5,8 @@ set -u
 CODE=/data/EM-Benchmark/man_formal_ed1bc9e
 OUT=/data/EM-Benchmark/runs/method_a/man_m3
 export PYTHONPATH="$CODE:$PYTHONPATH"
-export QWEN_CHAT_MAX_CONCURRENCY=2
+MAN_WORKERS=${MAN_WORKERS:-2}
+export QWEN_CHAT_MAX_CONCURRENCY=$MAN_WORKERS
 # Episode spatial:0041 returned valid responses after 161/171 seconds; the
 # former 120-second read timeout discarded them before receipt. This changes
 # transport patience only, not prompts, model or generation token budgets.
@@ -18,7 +19,7 @@ mkdir -p "$OUT" /data/EM-Benchmark/logs
  --env eb-man --split-dir /data/EM-Benchmark/em_skillopt/splits/eb-man \
  --out "$OUT" --model qwen3.8-27b --proxy "" \
  --epochs 2 --rollout-batch-size 48 --reflection-minibatch-size 4 \
- --reflection-workers 0 --parallel-workers 2 --n-shots 4 \
+ --reflection-workers 0 --parallel-workers "$MAN_WORKERS" --n-shots 4 \
  --train-limit 0 --val-limit 0 --max-train-steps 0 --skip-steps 0 \
  --max-steps 0 --max-planner-steps 20 --max-tokens 8192 --temperature 0 \
  --max-edits 1 --gate-metric hard --gate-mixed-weight 0.5 \
