@@ -280,71 +280,78 @@ def main() -> None:
                     print("[train] no rollout results; skip update")
                     continue
 
-                print(f"[train] step {step} | reflect")
-                mb_size = args.reflection_minibatch_size
-                mb_chunks = list(_chunks(train_results, mb_size))
-                patches_by_index: dict[int, list[dict]] = {}
+                if args.env == "eb-man" and (step_dir / "candidate.md").exists():
+                    from ..skillopt.checkpoint import recover_candidate
+                    merged_patch, selected_patch, update = recover_candidate(
+                        step_dir, current.content, args.max_skill_chars
+                    )
+                    print(f"[recovery] step {step}: retained exact candidate; resume gate", flush=True)
+                else:
+                    print(f"[train] step {step} | reflect")
+                    mb_size = args.reflection_minibatch_size
+                    mb_chunks = list(_chunks(train_results, mb_size))
+                    patches_by_index: dict[int, list[dict]] = {}
 
-                def reflect_one(mb_index: int, mb):
-                    return mb_index, reflect_episodes(
-                        mb,
-                        current.content or None,
+                    def reflect_one(mb_index: int, mb):
+                        return mb_index, reflect_episodes(
+                            mb,
+                            current.content or None,
+                            llm=client,
+                            out_dir=step_dir / "reflect" / f"mb_{mb_index:02d}",
+                            config=ReflectConfig(max_edits=args.max_edits),
+                            context=_step_buffer_text(step_buffer),
+                        )
+
+                    reflect_workers = min(
+                        args.reflection_workers or len(mb_chunks),
+                        len(mb_chunks),
+                    )
+                    with ThreadPoolExecutor(max_workers=reflect_workers) as pool:
+                        futures = [
+                            pool.submit(reflect_one, index, mb)
+                            for index, mb in enumerate(mb_chunks, start=1)
+                        ]
+                        for future in as_completed(futures):
+                            try:
+                                index, patch_list = future.result()
+                                patches_by_index[index] = patch_list
+                            except Exception as exc:
+                                print(f"[train] reflection failed: {exc!r}")
+
+                    patches = []
+                    for index in sorted(patches_by_index):
+                        patches.extend(patches_by_index[index])
+
+                    print(f"[train] step {step} | aggregate + clip")
+                    merged_patch = merge_patches(
+                        patches,
                         llm=client,
-                        out_dir=step_dir / "reflect" / f"mb_{mb_index:02d}",
-                        config=ReflectConfig(max_edits=args.max_edits),
-                        context=_step_buffer_text(step_buffer),
+                        current_skill=current.content,
+                    )
+                    selected_patch = rank_and_clip(
+                        merged_patch,
+                        max_edits=args.max_edits,
+                        current_skill=current.content,
+                        llm=client,
+                    )
+                    (step_dir / "merged_patch.json").write_text(
+                        json.dumps(merged_patch, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                    (step_dir / "selected_patch.json").write_text(
+                        json.dumps(selected_patch, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
                     )
 
-                reflect_workers = min(
-                    args.reflection_workers or len(mb_chunks),
-                    len(mb_chunks),
-                )
-                with ThreadPoolExecutor(max_workers=reflect_workers) as pool:
-                    futures = [
-                        pool.submit(reflect_one, index, mb)
-                        for index, mb in enumerate(mb_chunks, start=1)
-                    ]
-                    for future in as_completed(futures):
-                        try:
-                            index, patch_list = future.result()
-                            patches_by_index[index] = patch_list
-                        except Exception as exc:
-                            print(f"[train] reflection failed: {exc!r}")
-
-                patches = []
-                for index in sorted(patches_by_index):
-                    patches.extend(patches_by_index[index])
-
-                print(f"[train] step {step} | aggregate + clip")
-                merged_patch = merge_patches(
-                    patches,
-                    llm=client,
-                    current_skill=current.content,
-                )
-                selected_patch = rank_and_clip(
-                    merged_patch,
-                    max_edits=args.max_edits,
-                    current_skill=current.content,
-                    llm=client,
-                )
-                (step_dir / "merged_patch.json").write_text(
-                    json.dumps(merged_patch, ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
-                (step_dir / "selected_patch.json").write_text(
-                    json.dumps(selected_patch, ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
-
-                update = apply_patches(
-                    current.content,
-                    [selected_patch],
-                    max_chars=args.max_skill_chars,
-                )
-                (step_dir / "candidate.md").write_text(
-                    update.content.rstrip() + "\n",
-                    encoding="utf-8",
-                )
+                    update = apply_patches(
+                        current.content,
+                        [selected_patch],
+                        max_chars=args.max_skill_chars,
+                    )
+                    (step_dir / "candidate.md").write_text(
+                        update.content.rstrip() + "\n",
+                        encoding="utf-8",
+                    )
 
                 # Skip the expensive gate if reflection produced no change.
                 if update.content.strip() == (current.content or "").strip():
