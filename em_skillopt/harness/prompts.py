@@ -84,12 +84,7 @@ def _output_template(env_name: str, language_only: bool) -> str:
     )
 
     if env_name == "eb-man":
-        base = template_lang_manip if language_only else template_manip
-        return base + (
-            "\nSTRICT: executable_plan must be a JSON array of 7-integer arrays, "
-            "for example [[50, 42, 17, 6, 61, 36, 1], [50, 42, 17, 6, 61, 36, 0]]. "
-            "Never output action names, objects, or strings inside executable_plan."
-        )
+        return template_lang_manip if language_only else template_manip
     return template_lang if language_only else template
 
 
@@ -283,16 +278,13 @@ def _man_user_builder(actions: Sequence[Any]):
         instruction = spec.instruction.rstrip(".")
         coords = observation.metadata.get("object_coords", "")
         prompt = (
-            "\n## STRICT: executable_plan must be a JSON array of 7-integer arrays, "
-            "for example [[50, 42, 17, 6, 61, 36, 1], [50, 42, 17, 6, 61, 36, 0]]. "
-            "Never output action names, objects, or strings inside executable_plan.\n"
             "\n## Now you are supposed to follow the above examples to generate "
             "a sequence of discrete gripper actions that completes the below human "
             f"instruction. \nHuman Instruction: {instruction}.\nInput: {coords}\n"
             "Output gripper actions: "
         )
         for step in history:
-            prompt += f"{step.action}, "
+            prompt += f"{[step.action, step.feedback]}, "
         return prompt
 
     return build_man_user
@@ -425,13 +417,23 @@ class DomainContext:
             image_first=self.env_name in {"eb-nav", "eb-alf", "eb-hab"},
             system_as_user=True,
         )
-        return builder.build(
+        messages = builder.build(
             spec,
             observation,
             history,
             skill,
             planner_step=planner_step,
         )
+        if self.env_name == "eb-man":
+            # Match the official remote_model.py Qwen manipulation branch.
+            # Its schema expects objects containing action arrays, not bare
+            # seven-element arrays as previously requested by our prompt.
+            messages.insert(0, {"role": "system", "content": (
+                "For Manipulation, executable_plan must contain objects whose action is a JSON array of exactly seven discrete numbers "
+                "[x,y,z,rx,ry,rz,gripper], following the task's coordinate and rotation examples. "
+                "Do not output move_to(), open_gripper(), other function calls, variable names, or natural language as actions."
+            )})
+        return messages
 
 
 

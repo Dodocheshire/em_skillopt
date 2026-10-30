@@ -43,7 +43,9 @@ class ManAdapter(BaseAdapter):
             env,
             action_space=[],  # 7D actions are not action ids
             max_steps=max_steps,
-            replan_on_invalid=True,
+            # Official MAN evaluator continues the current plan after a failed
+            # action unless the environment terminates the episode.
+            replan_on_invalid=False,
         )
         self.camera_views = list(camera_views or ["front_rgb"])
         self.detection_box = detection_box
@@ -133,7 +135,7 @@ class ManAdapter(BaseAdapter):
                 )
 
         return Observation(
-            images=images,
+            images=[] if self.language_only else images,
             text=text,
             metadata={
                 "object_coords": avg_coord,
