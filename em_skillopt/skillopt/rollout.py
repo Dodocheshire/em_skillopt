@@ -138,6 +138,14 @@ def rollout_specs(
             ),
         ).run(specs, skill=skill)
 
+    if specs[0].env_name == "eb-man" and not cfg.resume:
+        expected = {spec.episode_id for spec in specs}
+        actual = {result.spec.episode_id for result in results}
+        if actual != expected:
+            raise RuntimeError(
+                f"Incomplete MAN batch; refusing update/gate: missing={sorted(expected-actual)}"
+            )
+
     rollouts = []
     for result in results:
         row = result.to_rollout_result()
@@ -339,6 +347,8 @@ def _process_rollout(
             shard = queue.pop(0)
             runner_spec = proc_spec_factory(shard[0].capability)
             runner_spec.skill = skill
+            runner_spec.out_dir = str(artifacts.root)
+            runner_spec.image_dir = str(artifacts.root / "images" / shard[0].capability / f"shard_{shard[0].index}_{shard[-1].index}")
             parent_conn, child_conn = ctx.Pipe(duplex=False)
             process = ctx.Process(
                 target=_spawn_entry,
@@ -369,11 +379,8 @@ def _process_rollout(
         conn.close()
 
         for result in collected:
-            if config.resume and artifacts.episode_done(result.spec.episode_id):
-                continue
             artifacts.save_episode(result)
             results_by_id[result.spec.episode_id] = result
-            print(f"[parallel] done {result.spec.episode_id}", flush=True)
 
     order = {spec.episode_id: index for index, spec in enumerate(specs)}
     return sorted(
