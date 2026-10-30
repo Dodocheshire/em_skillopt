@@ -39,6 +39,7 @@ class LLMResponse:
     text: str
     model: str = ""
     usage: TokenUsage = field(default_factory=TokenUsage)
+    finish_reason: str = "stop"
 
 
 @dataclass

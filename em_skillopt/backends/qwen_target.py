@@ -211,6 +211,7 @@ class QwenTargetClient:
                 return LLMResponse(
                     text=str(text),
                     model=self.config.model,
+                    finish_reason=getattr(response.choices[0], "finish_reason", "stop"),
                     usage=TokenUsage(
                         calls=1,
                         prompt_tokens=int(

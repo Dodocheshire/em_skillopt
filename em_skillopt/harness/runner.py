@@ -133,47 +133,58 @@ class EpisodeRunner:
                     elif message.get("role") == "user":
                         target_user_prompt = text
 
-            response = self.llm.generate(
-                messages,
-                max_tokens=self.config.max_tokens,
-                temperature=self.config.temperature,
-                response_format=self.config.response_format,
-                stage="target",
-            )
-            token_usage = token_usage + response.usage
+            if spec.env_name == "eb-man":
+                from .man_response import request_man_plan
+                outcome = request_man_plan(
+                    self.llm, messages, self.parser,
+                    max_tokens=self.config.max_tokens,
+                    temperature=self.config.temperature,
+                    response_format=self.config.response_format,
+                )
+                response, plan = outcome.response, outcome.plan
+                token_usage = token_usage + outcome.usage
+            else:
+                response = self.llm.generate(
+                    messages,
+                    max_tokens=self.config.max_tokens,
+                    temperature=self.config.temperature,
+                    response_format=self.config.response_format,
+                    stage="target",
+                )
+                token_usage = token_usage + response.usage
 
-            try:
-                if self.config.response_format:
-                    document = validate_json_schema(
-                        response.text,
-                        self.config.response_format,
+                try:
+                    if self.config.response_format:
+                        document = validate_json_schema(
+                            response.text,
+                            self.config.response_format,
+                        )
+                    else:
+                        document = load_json_value(response.text)
+                except Exception as exc:
+                    plan = ActionPlan(
+                        raw=response.text,
+                        error=f"schema validation error: {exc}",
                     )
                 else:
-                    document = load_json_value(response.text)
-            except Exception as exc:
-                plan = ActionPlan(
-                    raw=response.text,
-                    error=f"schema validation error: {exc}",
-                )
-            else:
-                plan = self.parser.parse_document(
-                    document,
-                    self.env.action_space,
-                )
-                plan.raw = response.text
-                if (
-                    self.plan_adjuster is not None
-                    and plan.error is None
-                    and plan.actions
-                ):
-                    plan = self.plan_adjuster.adjust(
-                        plan,
-                        spec,
-                        observation,
-                        history,
+                    plan = self.parser.parse_document(
+                        document,
                         self.env.action_space,
-                        planner_step,
                     )
+                    plan.raw = response.text
+                    if (
+                        self.plan_adjuster is not None
+                        and plan.error is None
+                        and plan.actions
+                    ):
+                        plan = self.plan_adjuster.adjust(
+                            plan,
+                            spec,
+                            observation,
+                            history,
+                            self.env.action_space,
+                            planner_step,
+                        )
             plans.append(
                 PlanRecord(
                     planner_step=planner_step,
