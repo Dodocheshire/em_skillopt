@@ -16,7 +16,8 @@ import re
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
-from .types import EpisodeResult, EvalSummary
+from .types import (EpisodeResult, EvalSummary, EpisodeSpec, PlanRecord,
+                    TrajectoryStep, TokenUsage)
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]+")
 
@@ -38,6 +39,16 @@ class RunArtifacts:
     def episode_done(self, episode_id: str) -> bool:
         path = self.episode_path(episode_id)
         return path.exists() and path.stat().st_size > 0
+
+    def load_episode(self, episode_id: str) -> EpisodeResult:
+        data = json.loads(self.episode_path(episode_id).read_text(encoding="utf-8"))
+        data["spec"] = EpisodeSpec(**data["spec"])
+        if data["spec"].episode_id != episode_id:
+            raise ValueError(f"Episode identity mismatch for {episode_id}")
+        data["plans"] = [PlanRecord(**row) for row in data.get("plans", [])]
+        data["trajectory"] = [TrajectoryStep(**row) for row in data.get("trajectory", [])]
+        data["token_usage"] = TokenUsage(**data.get("token_usage", {}))
+        return EpisodeResult(**data)
 
     def save_episode(self, result: EpisodeResult) -> Path:
         path = self.episode_path(result.spec.episode_id)

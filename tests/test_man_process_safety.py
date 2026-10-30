@@ -51,6 +51,20 @@ class ManProcessSafety(unittest.TestCase):
             self.assertEqual(len(rows),4)
             self.assertEqual(len(set(paths)),2)
 
+    def test_saved_results_recovered_and_included_in_summary(self):
+        specs=[EpisodeSpec('eb-man:base:0000','eb-man',0,'task')]
+        with tempfile.TemporaryDirectory() as root:
+            artifacts=RunArtifacts(root)
+            artifacts.save_json('rollout_config.json', {'env_name':'eb-man','split':specs[0].split,'skill_sha256':''})
+            artifacts.save_episode(EpisodeResult(spec=specs[0],success=True))
+            with patch('em_skillopt.skillopt.rollout._process_rollout',return_value=[]):
+                rows=rollout_specs(specs,None,out_dir=root,runner_factory=None,proc_spec_factory=lambda c:None,config=RolloutConfig(workers=2,resume=False))
+            self.assertEqual(len(rows),1)
+            self.assertTrue(rows[0].success)
+            self.assertEqual(artifacts.load_json('summary.json')['total'],1)
+            with self.assertRaisesRegex(RuntimeError,'fingerprint mismatch'):
+                rollout_specs(specs,'different skill',out_dir=root,runner_factory=None,proc_spec_factory=lambda c:None,config=RolloutConfig(workers=2))
+
     def test_incomplete_man_batch_cannot_reach_summary_or_gate(self):
         specs=[EpisodeSpec('eb-man:base:0000','eb-man',0,'task')]
         with tempfile.TemporaryDirectory() as root:

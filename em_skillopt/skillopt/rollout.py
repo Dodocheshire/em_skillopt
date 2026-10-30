@@ -26,7 +26,7 @@ import threading
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Sequence
 
@@ -87,6 +87,27 @@ def rollout_specs(
     output = Path(out_dir).expanduser().resolve()
     artifacts = RunArtifacts(output)
 
+    recovered = {}
+    if specs[0].env_name == "eb-man":
+        previous_path = output / "rollout_config.json"
+        existing = any(artifacts.episode_done(spec.episode_id) for spec in specs)
+        if existing:
+            if not previous_path.exists():
+                raise RuntimeError("MAN recovery requires a recorded skill fingerprint")
+            previous = artifacts.load_json("rollout_config.json")
+            if previous.get("skill_sha256") != _skill_hash(skill):
+                raise RuntimeError("MAN recovery skill fingerprint mismatch; refusing stale episodes")
+            if previous.get("env_name") != specs[0].env_name or previous.get("split") != specs[0].split:
+                raise RuntimeError("MAN recovery environment/split mismatch")
+            for spec in specs:
+                if artifacts.episode_done(spec.episode_id):
+                    result = artifacts.load_episode(spec.episode_id)
+                    if (result.spec.index, result.spec.capability) != (spec.index, spec.capability):
+                        raise RuntimeError(f"MAN episode index/capability mismatch: {spec.episode_id}")
+                    recovered[spec.episode_id] = result
+            cfg = replace(cfg, resume=True)
+            print(f"[recovery] reused {len(recovered)}/{len(specs)} MAN episodes under matching skill", flush=True)
+
     artifacts.save_json(
         "rollout_config.json",
         {
@@ -138,7 +159,9 @@ def rollout_specs(
             ),
         ).run(specs, skill=skill)
 
-    if specs[0].env_name == "eb-man" and not cfg.resume:
+    if specs[0].env_name == "eb-man":
+        recovered.update({result.spec.episode_id: result for result in results})
+        results = [recovered[spec.episode_id] for spec in specs if spec.episode_id in recovered]
         expected = {spec.episode_id for spec in specs}
         actual = {result.spec.episode_id for result in results}
         if actual != expected:
