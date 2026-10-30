@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 import json
+import math
 import re
 from typing import Any, Sequence
 
@@ -92,8 +93,15 @@ class ManipulationPlanParser:
     ) -> ActionPlan:
         del action_space
         try:
-            plan = _plan_items(document)
-        except Exception as exc:
+            # Match the pinned official parse_manipulation_plan decoder.
+            plan = document.get(
+                "executable_plan", document.get("properties", {}).get("executable_plan")
+            )
+            if isinstance(plan, str):
+                plan = ast.literal_eval(plan)
+            if not isinstance(plan, (list, tuple)):
+                raise ValueError("executable_plan must be a list")
+        except (ValueError, TypeError, AttributeError, SyntaxError) as exc:
             return ActionPlan(error=f"parse error: {exc}")
 
         if not plan:
@@ -101,6 +109,8 @@ class ManipulationPlanParser:
 
         actions: list[ActionValue] = []
         for index, item in enumerate(plan):
+            if isinstance(item, (list, tuple)) and len(item) == 1 and isinstance(item[0], dict):
+                item = item[0]
             values = self._action_values(item)
             if isinstance(values, str):
                 try:
@@ -115,7 +125,9 @@ class ManipulationPlanParser:
                     error=f"action {index} must be a 7-element list"
                 )
             if any(
-                not isinstance(value, int) or isinstance(value, bool)
+                type(value) not in (int, float)
+                or not math.isfinite(value)
+                or int(value) != value
                 for value in values
             ):
                 return ActionPlan(
