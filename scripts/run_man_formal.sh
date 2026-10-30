@@ -15,7 +15,7 @@ export QWEN_CHAT_HARD_TIMEOUT_S=660
 cd /data/EM-Benchmark/EmbodiedBench
 mkdir -p "$OUT" /data/EM-Benchmark/logs
 # No automatic restart: partial skill/gate state must be inspected before resume.
-"$PY" -u -m em_skillopt.cli.train \
+"$PY" -u "$CODE/scripts/man_train_observed.py" \
  --env eb-man --split-dir /data/EM-Benchmark/em_skillopt/splits/eb-man \
  --out "$OUT" --model qwen3.8-27b --proxy "" \
  --epochs 2 --rollout-batch-size 48 --reflection-minibatch-size 4 \
