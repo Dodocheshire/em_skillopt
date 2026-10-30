@@ -392,13 +392,23 @@ def _process_rollout(
             kind = message[0]
             if kind == "ok":
                 collected.extend(message[1])
+                # The complete shard is received. Simulator teardown must not
+                # hold the parent waiting for pipe EOF before other results.
+                break
             elif kind == "one":
                 pass  # already persisted and announced by the child
             elif kind == "err":
                 print(f"[parallel] {message[1]} failed: {message[2]}", flush=True)
             else:
                 print(f"[parallel] shard fatal: {message[1]}", flush=True)
-        process.join()
+        process.join(timeout=30)
+        if process.is_alive():
+            print(f"[parallel] terminating worker {process.pid} after completed IPC/teardown timeout", flush=True)
+            process.terminate()
+            process.join(timeout=10)
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=10)
         conn.close()
 
         for result in collected:

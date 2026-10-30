@@ -10,18 +10,22 @@ from em_skillopt.skillopt.rollout import _process_rollout, rollout_specs, Rollou
 
 
 class Connection:
-    def __init__(self, buffer): self.buffer=buffer
+    def __init__(self, buffer): self.buffer=buffer; self.terminal=False
     def send(self, message): self.buffer.append(message)
     def recv(self):
+        if self.terminal: raise AssertionError('Parent waited for EOF after complete shard')
         if not self.buffer: raise EOFError
-        return self.buffer.pop(0)
+        value=self.buffer.pop(0)
+        if value[0]=='ok': self.terminal=True
+        return value
     def close(self): pass
 
 
 class Process:
     def __init__(self, target, args, daemon): self.target,self.args=target,args
     def start(self): self.target(*self.args)
-    def join(self): pass
+    def join(self, timeout=None): pass
+    def is_alive(self): return False
 
 
 class Context:
