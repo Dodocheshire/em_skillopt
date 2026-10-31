@@ -70,7 +70,8 @@ def _examples(env_name: str, eval_set: str, n_shots: int, observation: Observati
         task_class = variation.split("_")[0] if variation else "pick"
         table = llm_examples if variation and not observation.images else vlm_examples_baseline
         values = table.get(task_class) or table.get("pick") or []
-        return [str(item) for item in values[:n_shots]]
+        from .man_examples import normalize_man_example
+        return [normalize_man_example(str(item)) for item in values[:n_shots]]
 
     raise ValueError(f"unknown env: {env_name}")
 
