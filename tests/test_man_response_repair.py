@@ -37,11 +37,23 @@ class ManRepairTests(unittest.TestCase):
         self.assertEqual(llm.requests[1][0][-2]["role"], "assistant")
         self.assertIn("Your action plan cannot be parsed:", llm.requests[1][0][-1]["content"])
 
-    def test_final_parse_failure_raises_without_new_planner_cycle(self):
+    def test_final_parse_failure_stops_without_executing_actions(self):
         llm = FakeLLM([reply({"executable_plan":"move_to()"}) for _ in range(3)])
-        with self.assertRaisesRegex(RuntimeError, "after 3 attempts"):
-            self.run_request(llm)
+        outcome = self.run_request(llm)
+        self.assertTrue(outcome.plan.stop)
+        self.assertIn("after 3 attempts", outcome.plan.error)
+        self.assertEqual(outcome.plan.actions, [])
         self.assertEqual(len(llm.requests), 3)
+
+    def test_final_length_retries_same_planner_once_then_raises(self):
+        from unittest.mock import patch
+        llm = FakeLLM([reply({}, "length") for _ in range(6)])
+        with patch("em_skillopt.harness.man_response.time.sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "after 3 attempts"):
+                self.run_request(llm)
+        sleep.assert_called_once_with(60)
+        self.assertEqual([kw["max_tokens"] for _,kw in llm.requests],
+                         [8192,16384,32768,8192,16384,32768])
 
     def test_truncation_doubles_token_budget(self):
         llm = FakeLLM([reply({}, "length"), reply({"executable_plan":[]})])
