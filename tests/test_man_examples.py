@@ -15,6 +15,13 @@ class ManExamples(unittest.TestCase):
         self.assertNotIn('language_plan',document)
         self.assertEqual(normalize_man_example(after),after)
 
+    def test_extra_grouping_bracket_preserves_every_numeric_vector(self):
+        value='[[1,2,3,4,5,6,0]], [7,8,9,10,11,12,1]]'
+        result=json.loads(normalize_man_example(json.dumps({'executable_plan':value})))
+        self.assertEqual(result['executable_plan'],[{'action':[1,2,3,4,5,6,0]},{'action':[7,8,9,10,11,12,1]}])
+        with self.assertRaises(ValueError):
+            normalize_man_example(json.dumps({'executable_plan':'[[1,2,3,4,5,6,0]], move_to()]'}))
+
     def test_already_object_and_empty_plans_are_supported(self):
         for value in [[],[{'action':[0,1,2,3,4,5,0]}]]:
             text=json.dumps({'executable_plan':value})

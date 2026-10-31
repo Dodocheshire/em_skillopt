@@ -17,7 +17,21 @@ def normalize_man_example(example: str) -> str:
     for match in reversed(matches):
         start = match.end()
         value, length = decoder.raw_decode(example[start:])
-        plan = ast.literal_eval(value) if isinstance(value, str) else value
+        if isinstance(value, str):
+            try:
+                plan = ast.literal_eval(value)
+            except (SyntaxError, ValueError):
+                # One shipped demonstration has an extra grouping bracket.
+                # Recover only explicit seven-integer vectors, accepting no
+                # residual names, expressions, or other content.
+                vector = re.compile(r'\[\s*-?\d+(?:\s*,\s*-?\d+){6}\s*\]')
+                found = list(vector.finditer(value))
+                remainder = vector.sub('', value)
+                if not found or re.sub(r'[\[\],\s]', '', remainder):
+                    raise ValueError('Unrecoverable MAN example action syntax')
+                plan = [ast.literal_eval(m.group(0)) for m in found]
+        else:
+            plan = value
         if not isinstance(plan, (list, tuple)):
             raise ValueError('MAN example executable_plan must contain a list')
         normalized = []
